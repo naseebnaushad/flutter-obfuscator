@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:yaml/yaml.dart';
 
+import '../crypto/key_strategy.dart';
+
 /// Parsed contents of `obfuscator.yaml`.
 class ObfuscatorConfig {
   ObfuscatorConfig({
@@ -11,6 +13,7 @@ class ObfuscatorConfig {
     required this.excludeFiles,
     required this.assetIncludes,
     required this.assetExcludes,
+    required this.keyStrategy,
   });
 
   final List<RegExp> secretPatterns;
@@ -19,6 +22,11 @@ class ObfuscatorConfig {
   final List<String> excludeFiles;
   final List<String> assetIncludes;
   final List<String> assetExcludes;
+
+  /// Where the vault key lives at runtime. Defaults to [KeyStrategy.dartSplit]
+  /// (v1, unchanged behavior); set `key_strategy: native_channel` in
+  /// obfuscator.yaml to opt into the v2 native platform-channel key.
+  final KeyStrategy keyStrategy;
 
   static const List<String> _defaultPatternStrings = [
     r'api[_-]?key',
@@ -41,6 +49,7 @@ class ObfuscatorConfig {
         excludeFiles: const ['**/*.g.dart', '**/*.freezed.dart'],
         assetIncludes: const [],
         assetExcludes: const [],
+        keyStrategy: KeyStrategy.dartSplit,
       );
 
   /// Loads config from [path] if it exists, otherwise returns defaults.
@@ -70,6 +79,7 @@ class ObfuscatorConfig {
 
     final assetIncludes = _stringList(assets['include']) ?? const [];
     final assetExcludes = _stringList(assets['exclude']) ?? const [];
+    final keyStrategy = KeyStrategy.parse(map['key_strategy'] as String?);
 
     return ObfuscatorConfig(
       secretPatterns:
@@ -79,6 +89,7 @@ class ObfuscatorConfig {
       excludeFiles: excludeFiles,
       assetIncludes: assetIncludes,
       assetExcludes: assetExcludes,
+      keyStrategy: keyStrategy,
     );
   }
 

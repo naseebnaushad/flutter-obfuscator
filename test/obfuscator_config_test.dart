@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_obfuscator/src/config/obfuscator_config.dart';
+import 'package:flutter_obfuscator/src/crypto/key_strategy.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -10,6 +11,25 @@ void main() {
     expect(config.nameLooksLikeSecret('authToken'), isTrue);
     expect(config.nameLooksLikeSecret('clientSecret'), isTrue);
     expect(config.nameLooksLikeSecret('baseUrl'), isFalse);
+  });
+
+  test('defaults() uses the dart_split key strategy', () {
+    expect(ObfuscatorConfig.defaults().keyStrategy, KeyStrategy.dartSplit);
+  });
+
+  test('load() reads key_strategy: native_channel', () {
+    final dir = Directory.systemTemp.createTempSync('obf_config_test_');
+    final file = File('${dir.path}/obfuscator.yaml');
+    file.writeAsStringSync('key_strategy: native_channel\n');
+
+    final config = ObfuscatorConfig.load(file.path);
+    expect(config.keyStrategy, KeyStrategy.nativeChannel);
+
+    dir.deleteSync(recursive: true);
+  });
+
+  test('KeyStrategy.parse rejects unknown values', () {
+    expect(() => KeyStrategy.parse('bogus'), throwsFormatException);
   });
 
   test('load() reads custom patterns and asset globs from yaml', () {

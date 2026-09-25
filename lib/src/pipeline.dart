@@ -8,6 +8,12 @@ import 'assets/asset_vault_generator.dart';
 import 'build/flutter_build_runner.dart';
 import 'config/obfuscator_config.dart';
 import 'crypto/key_material.dart';
+import 'crypto/key_split_plan.dart';
+import 'crypto/key_strategy.dart';
+import 'crypto/native_key_channel_generator.dart';
+import 'native/android_native_key_generator.dart';
+import 'native/ios_native_key_generator.dart';
+import 'native/native_injection_result.dart';
 import 'report/report.dart';
 import 'secrets/secret_scanner.dart';
 import 'secrets/secret_vault_generator.dart';
@@ -40,14 +46,17 @@ class Pipeline {
       stagingRoot: stagingRoot,
     );
 
-    final keyMaterial = VaultKeyMaterial.generate();
+    final keyBytes = generateKeyBytes();
+    final keyMaterial = config.keyStrategy == KeyStrategy.dartSplit
+        ? VaultKeyMaterial.generate(keyBytes: keyBytes)
+        : null;
 
     stdout.writeln('Scanning lib/ for hardcoded secrets...');
-    final scanner = SecretScanner(config, keyMaterial.keyBytes, packageName);
+    final scanner = SecretScanner(config, keyBytes, packageName);
     await scanner.scanDirectory(p.join(stagingRoot, 'lib'));
 
     stdout.writeln('Encrypting matched assets...');
-    final assetEncryptor = AssetEncryptor(keyMaterial.keyBytes);
+    final assetEncryptor = AssetEncryptor(keyBytes);
     await assetEncryptor.encryptDirectory(
       projectRoot: stagingRoot,
       includeGlobs: config.assetIncludes,
@@ -65,10 +74,30 @@ class Pipeline {
     SecretVaultGenerator.write(
       projectRoot: stagingRoot,
       findings: scanner.findings,
+      keyStrategy: config.keyStrategy,
       keyMaterial: keyMaterial,
     );
     if (assetEncryptor.findings.isNotEmpty) {
-      AssetVaultGenerator.write(projectRoot: stagingRoot);
+      AssetVaultGenerator.write(
+        projectRoot: stagingRoot,
+        keyStrategy: config.keyStrategy,
+      );
+    }
+
+    var nativeResults = const <NativeInjectionResult>[];
+    if (config.keyStrategy == KeyStrategy.nativeChannel) {
+      stdout.writeln('Wiring native key channel...');
+      NativeKeyChannelGenerator.write(projectRoot: stagingRoot);
+      nativeResults = [
+        AndroidNativeKeyGenerator.generate(
+          projectRoot: stagingRoot,
+          keyBytes: keyBytes,
+        ),
+        IosNativeKeyGenerator.generate(
+          projectRoot: stagingRoot,
+          keyBytes: keyBytes,
+        ),
+      ];
     }
 
     ProjectStager.ensureRuntimeDependency(stagingRoot);
@@ -78,6 +107,7 @@ class Pipeline {
       skippedSecrets: scanner.skipped,
       assets: assetEncryptor.findings,
       unrewrittenAssetPaths: unrewritten,
+      nativeKeyChannelResults: nativeResults,
     );
 
     var exitCode = 0;
