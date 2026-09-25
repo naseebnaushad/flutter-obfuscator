@@ -28,6 +28,23 @@ void main() {
     dir.deleteSync(recursive: true);
   });
 
+  test('load() reads key_strategy: native_ndk', () {
+    final dir = Directory.systemTemp.createTempSync('obf_config_test_');
+    final file = File('${dir.path}/obfuscator.yaml');
+    file.writeAsStringSync('key_strategy: native_ndk\n');
+
+    final config = ObfuscatorConfig.load(file.path);
+    expect(config.keyStrategy, KeyStrategy.nativeNdk);
+
+    dir.deleteSync(recursive: true);
+  });
+
+  test('KeyStrategy.usesNativeChannel is true for both native strategies', () {
+    expect(KeyStrategy.dartSplit.usesNativeChannel, isFalse);
+    expect(KeyStrategy.nativeChannel.usesNativeChannel, isTrue);
+    expect(KeyStrategy.nativeNdk.usesNativeChannel, isTrue);
+  });
+
   test('KeyStrategy.parse rejects unknown values', () {
     expect(() => KeyStrategy.parse('bogus'), throwsFormatException);
   });

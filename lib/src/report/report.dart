@@ -44,7 +44,7 @@ class Report {
     }
     if (nativeKeyChannelResults.isNotEmpty) {
       stdout.writeln('');
-      stdout.writeln('Native key channel (v2):');
+      stdout.writeln('Native key channel:');
       for (final r in nativeKeyChannelResults) {
         if (r.applied) {
           stdout.writeln('  - ${r.platform}: wired into ${r.entryPointPath}');

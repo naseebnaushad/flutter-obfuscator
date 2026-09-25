@@ -12,6 +12,7 @@ import 'crypto/key_split_plan.dart';
 import 'crypto/key_strategy.dart';
 import 'crypto/native_key_channel_generator.dart';
 import 'native/android_native_key_generator.dart';
+import 'native/android_ndk_key_generator.dart';
 import 'native/ios_native_key_generator.dart';
 import 'native/native_injection_result.dart';
 import 'report/report.dart';
@@ -85,14 +86,20 @@ class Pipeline {
     }
 
     var nativeResults = const <NativeInjectionResult>[];
-    if (config.keyStrategy == KeyStrategy.nativeChannel) {
+    if (config.keyStrategy.usesNativeChannel) {
       stdout.writeln('Wiring native key channel...');
       NativeKeyChannelGenerator.write(projectRoot: stagingRoot);
+      final androidResult = config.keyStrategy == KeyStrategy.nativeNdk
+          ? AndroidNdkKeyGenerator.generate(
+              projectRoot: stagingRoot,
+              keyBytes: keyBytes,
+            )
+          : AndroidNativeKeyGenerator.generate(
+              projectRoot: stagingRoot,
+              keyBytes: keyBytes,
+            );
       nativeResults = [
-        AndroidNativeKeyGenerator.generate(
-          projectRoot: stagingRoot,
-          keyBytes: keyBytes,
-        ),
+        androidResult,
         IosNativeKeyGenerator.generate(
           projectRoot: stagingRoot,
           keyBytes: keyBytes,

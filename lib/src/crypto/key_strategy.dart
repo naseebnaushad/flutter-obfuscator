@@ -13,7 +13,18 @@ enum KeyStrategy {
   /// recover it — the key now has to be pulled from the native
   /// binary/DEX instead, which is a different attack surface than the
   /// Dart obfuscation this whole tool otherwise targets.
-  nativeChannel;
+  nativeChannel,
+
+  /// v3: same MethodChannel shape as [nativeChannel], but on Android the
+  /// key material and its XOR-combine logic live in a compiled C++
+  /// library (JNI, built via CMake/NDK) instead of Kotlin. Kotlin
+  /// compiles to DEX, which JADX decompiles back to near-original
+  /// source trivially; a stripped `.so` requires disassembly
+  /// (objdump/Ghidra/IDA) instead, a meaningfully higher bar. iOS is
+  /// unaffected — Swift already compiles to native machine code, so v2
+  /// already closed that gap there; this strategy reuses the same iOS
+  /// generator as [nativeChannel].
+  nativeNdk;
 
   static KeyStrategy parse(String? value) {
     switch (value) {
@@ -22,11 +33,18 @@ enum KeyStrategy {
         return KeyStrategy.dartSplit;
       case 'native_channel':
         return KeyStrategy.nativeChannel;
+      case 'native_ndk':
+        return KeyStrategy.nativeNdk;
       default:
         throw FormatException(
-          'Unknown key_strategy "$value". Expected "dart_split" or '
-          '"native_channel".',
+          'Unknown key_strategy "$value". Expected "dart_split", '
+          '"native_channel", or "native_ndk".',
         );
     }
   }
+
+  /// Whether the Dart-side vault should fetch the key over
+  /// `NativeKeyChannel` (any native strategy) instead of reconstructing
+  /// it from Dart constants ([dartSplit]).
+  bool get usesNativeChannel => this != KeyStrategy.dartSplit;
 }

@@ -64,7 +64,7 @@ class SecretVaultGenerator {
   }
 
   static String _vaultFileSource(KeyStrategy keyStrategy) {
-    final isNative = keyStrategy == KeyStrategy.nativeChannel;
+    final isNative = keyStrategy.usesNativeChannel;
     final keyImport = isNative
         ? "import 'native_key_channel.g.dart';"
         : "import '_obf_key_material.g.dart';";

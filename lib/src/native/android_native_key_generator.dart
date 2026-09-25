@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:path/path.dart' as p;
 
 import '../crypto/key_split_plan.dart';
+import 'android_main_activity_injector.dart';
 import 'native_injection_result.dart';
 
 /// Generates the Android half of the v2 native key channel: a Kotlin
@@ -14,66 +15,26 @@ import 'native_injection_result.dart';
 /// Only Kotlin `MainActivity` files matching the standard `flutter
 /// create` shape are patched; anything else is reported as skipped with
 /// instructions rather than risking a broken build.
+///
+/// [AndroidNdkKeyGenerator] (v3) reuses [AndroidMainActivityInjector] for
+/// the identical `MainActivity.kt` wiring, but generates a JNI-backed
+/// `ObfuscatorKeyPlugin` instead of this pure-Kotlin one.
 class AndroidNativeKeyGenerator {
-  static const _beginMarker = '// BEGIN FLUTTER_OBFUSCATOR KEY CHANNEL';
-  static const _endMarker = '// END FLUTTER_OBFUSCATOR KEY CHANNEL';
-  static const _engineImport =
-      'import io.flutter.embedding.engine.FlutterEngine';
-
   static NativeInjectionResult generate({
     required String projectRoot,
     required List<int> keyBytes,
     Random? random,
   }) {
-    final androidMainDir = Directory(
-      p.join(projectRoot, 'android', 'app', 'src', 'main'),
-    );
-    if (!androidMainDir.existsSync()) {
+    final located = AndroidMainActivityInjector.locate(projectRoot);
+    if (located.location == null) {
       return NativeInjectionResult(
         platform: 'android',
         applied: false,
-        reason: 'no android/app/src/main directory found — is this an '
-            'Android-enabled Flutter project?',
+        reason: located.reason,
       );
     }
-
-    final mainActivityKt = androidMainDir
-        .listSync(recursive: true)
-        .whereType<File>()
-        .where((f) => p.basename(f.path) == 'MainActivity.kt')
-        .toList();
-
-    if (mainActivityKt.isEmpty) {
-      final hasJava = androidMainDir
-          .listSync(recursive: true)
-          .whereType<File>()
-          .any((f) => p.basename(f.path) == 'MainActivity.java');
-      return NativeInjectionResult(
-        platform: 'android',
-        applied: false,
-        reason: hasJava
-            ? 'MainActivity.java found, but only Kotlin MainActivity is '
-                'auto-wired in v2 — port it to Kotlin, or register '
-                'ObfuscatorKeyPlugin manually (see README)'
-            : 'no MainActivity.kt found under android/app/src/main',
-      );
-    }
-
-    final mainActivityFile = mainActivityKt.first;
-    final activitySource = mainActivityFile.readAsStringSync();
-
-    final packageMatch = RegExp(r'^package\s+([\w.]+)', multiLine: true)
-        .firstMatch(activitySource);
-    if (packageMatch == null) {
-      return NativeInjectionResult(
-        platform: 'android',
-        applied: false,
-        entryPointPath: mainActivityFile.path,
-        reason: 'could not find a package declaration in '
-            '${mainActivityFile.path}',
-      );
-    }
-    final packageName = packageMatch.group(1)!;
+    final mainActivityFile = located.location!.file;
+    final packageName = located.location!.packageName;
 
     final pluginFile = File(
         p.join(p.dirname(mainActivityFile.path), 'ObfuscatorKeyPlugin.kt'));
@@ -81,7 +42,8 @@ class AndroidNativeKeyGenerator {
       _pluginSource(packageName, keyBytes, random: random),
     );
 
-    final injected = _injectIntoMainActivity(activitySource);
+    final injected =
+        AndroidMainActivityInjector.inject(mainActivityFile.readAsStringSync());
     if (injected == null) {
       return NativeInjectionResult(
         platform: 'android',
@@ -104,53 +66,6 @@ class AndroidNativeKeyGenerator {
       entryPointPath: mainActivityFile.path,
       pluginFilePath: pluginFile.path,
     );
-  }
-
-  static String? _injectIntoMainActivity(String source) {
-    var working = source;
-
-    final markerBlock = RegExp(
-      '${RegExp.escape(_beginMarker)}[\\s\\S]*?${RegExp.escape(_endMarker)}\\n?',
-    );
-    working = working.replaceAll(markerBlock, '');
-
-    if (!working.contains(_engineImport)) {
-      final importExp = RegExp(r"^import\s+[\w.]+\s*$", multiLine: true);
-      final matches = importExp.allMatches(working).toList();
-      if (matches.isNotEmpty) {
-        final lastImportEnd = matches.last.end;
-        working = working.replaceRange(
-            lastImportEnd, lastImportEnd, '\n$_engineImport');
-      } else {
-        working = '$_engineImport\n$working';
-      }
-    }
-
-    final override = '''
-    $_beginMarker
-    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
-        super.configureFlutterEngine(flutterEngine)
-        flutterEngine.plugins.add(ObfuscatorKeyPlugin())
-    }
-    $_endMarker
-''';
-
-    final bodyMatch =
-        RegExp(r'class\s+MainActivity\b[^{\n]*\{').firstMatch(working);
-    if (bodyMatch != null) {
-      final insertAt = bodyMatch.end;
-      return working.replaceRange(insertAt, insertAt, '\n$override');
-    }
-
-    final noBodyMatch =
-        RegExp(r'class\s+MainActivity\b[^{\n]*$', multiLine: true)
-            .firstMatch(working);
-    if (noBodyMatch != null) {
-      final insertAt = noBodyMatch.end;
-      return working.replaceRange(insertAt, insertAt, ' {\n$override}\n');
-    }
-
-    return null;
   }
 
   static String _pluginSource(

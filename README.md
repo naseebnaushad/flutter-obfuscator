@@ -61,6 +61,40 @@ harder extraction path. It's still the same split/XOR obfuscation
 technique as v1, just relocated — see **Known limitations** below for
 what this still doesn't solve.
 
+## What it does (v3, opt-in, Android only)
+
+Set `key_strategy: native_ndk` instead and, on Android, the key moves out
+of Kotlin/DEX entirely into a compiled C++ library:
+
+9. **NDK/JNI key store** — generates a small CMake project under
+   `android/app/src/main/cpp/flutter_obfuscator/` (`obfuscator_key.cpp` +
+   `CMakeLists.txt`) holding the same split/XOR key material, this time
+   as C arrays in a `.so`. `ObfuscatorKeyPlugin.kt` becomes a thin
+   `external fun nativeMaterializeKey(): ByteArray` + `System.loadLibrary`
+   shell around it; the JNI binding is wired up via `RegisterNatives` in
+   `JNI_OnLoad` (not the mangled `Java_pkg_Class_method` naming
+   convention) so it works regardless of underscores in your package
+   name.
+10. **Gradle wiring** — injects an `externalNativeBuild { cmake { ... } }`
+    block into `android/app/build.gradle` (or `.kts`), marked and
+    idempotent the same way as the v2 injections. Android Gradle Plugin
+    only supports one CMake project per module, so if your project
+    already configures `externalNativeBuild`, this is left alone and
+    reported as skipped — merge the generated `CMakeLists.txt` by hand.
+11. **iOS is unchanged.** Swift already compiles to native machine code
+    (v2 already closed the "it's sitting in an easily-decompiled
+    intermediate format" gap there), so `native_ndk` reuses the exact
+    same iOS generator as `native_channel`. This strategy only changes
+    the Android backend.
+
+Why this matters: Kotlin compiles to DEX, and JADX decompiles DEX back to
+near-original Kotlin/Java source in seconds — the v2 Android key material
+is genuinely easy to read once someone opens the APK in a decompiler. A
+stripped `.so` requires actual disassembly (`objdump`, Ghidra, IDA)
+instead, which is a real jump in effort. It is still findable by someone
+willing to do that work, and still requires the NDK to be installed to
+build — see **Known limitations**.
+
 All of this runs against a **staged copy** of your project
 (`<project>/build/obfuscated` by default) so your working tree is never
 touched, unless you explicitly ask for `apply` (in-place).
@@ -115,7 +149,7 @@ assets:
   exclude:
     - 'assets/config/public_readme.md'
 
-key_strategy: dart_split # or 'native_channel' (v2, see above)
+key_strategy: dart_split # 'dart_split' (v1) | 'native_channel' (v2) | 'native_ndk' (v3)
 ```
 
 ## Known limitations (read this before a VAPT sign-off)
@@ -143,6 +177,17 @@ key_strategy: dart_split # or 'native_channel' (v2, see above)
   runtime either way. It only auto-wires the standard `flutter create`
   `MainActivity.kt`/`AppDelegate.swift` shapes — anything else is
   reported as skipped, not silently broken.
+- **v3 (`key_strategy: native_ndk`) only hardens the Android backend.**
+  It raises the bar from "decompile DEX with JADX" to "disassemble a
+  stripped `.so`" for the key material specifically — a real jump in
+  effort, but not a wall: the key is still there in the binary for
+  someone willing to do that work, and a Frida hook on the MethodChannel
+  call or `SecretVault.get`/`AssetVault.load` still defeats it at
+  runtime regardless of where the key lives. It requires the Android NDK
+  to be installed to build (a normal `flutter build apk` doesn't need
+  it), only supports one CMake native build per module (a project that
+  already uses `externalNativeBuild` is left alone and reported as
+  skipped), and doesn't change anything on iOS.
 - **Only variable declarations are auto-transformed.** A bare string
   literal used inline (not assigned to a `const`/`final` field) is not
   rewritten — refactor it into a named constant first (good practice

@@ -21,7 +21,7 @@ class AssetVaultGenerator {
   }
 
   static String _source(KeyStrategy keyStrategy) {
-    final isNative = keyStrategy == KeyStrategy.nativeChannel;
+    final isNative = keyStrategy.usesNativeChannel;
     final keyImport = isNative
         ? "import 'native_key_channel.g.dart';"
         : "import '_obf_key_material.g.dart';";
