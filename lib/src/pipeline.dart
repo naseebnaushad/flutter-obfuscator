@@ -1,0 +1,147 @@
+import 'dart:io';
+
+import 'package:path/path.dart' as p;
+
+import 'assets/asset_call_rewriter.dart';
+import 'assets/asset_encryptor.dart';
+import 'assets/asset_vault_generator.dart';
+import 'build/flutter_build_runner.dart';
+import 'config/obfuscator_config.dart';
+import 'crypto/key_material.dart';
+import 'report/report.dart';
+import 'secrets/secret_scanner.dart';
+import 'secrets/secret_vault_generator.dart';
+import 'staging/project_stager.dart';
+import 'verify/plaintext_verifier.dart';
+
+class PipelineResult {
+  PipelineResult({required this.stagedProjectRoot, required this.exitCode});
+  final String stagedProjectRoot;
+  final int exitCode;
+}
+
+/// Runs the full obfuscation pipeline against a staged copy of the
+/// project: scan+encrypt secrets, encrypt matched assets, rewrite call
+/// sites, generate the runtime vaults, wire the `cryptography`
+/// dependency, and optionally invoke `flutter build` and the plaintext
+/// verifier.
+class Pipeline {
+  static Future<PipelineResult> run({
+    required String sourceRoot,
+    required String stagingRoot,
+    required ObfuscatorConfig config,
+    String? buildTarget,
+    String? splitDebugInfoDir,
+    bool verify = false,
+  }) async {
+    stdout.writeln('Staging project from $sourceRoot -> $stagingRoot');
+    final packageName = ProjectStager.stage(
+      sourceRoot: sourceRoot,
+      stagingRoot: stagingRoot,
+    );
+
+    final keyMaterial = VaultKeyMaterial.generate();
+
+    stdout.writeln('Scanning lib/ for hardcoded secrets...');
+    final scanner = SecretScanner(config, keyMaterial.keyBytes, packageName);
+    await scanner.scanDirectory(p.join(stagingRoot, 'lib'));
+
+    stdout.writeln('Encrypting matched assets...');
+    final assetEncryptor = AssetEncryptor(keyMaterial.keyBytes);
+    await assetEncryptor.encryptDirectory(
+      projectRoot: stagingRoot,
+      includeGlobs: config.assetIncludes,
+      excludeGlobs: config.assetExcludes,
+    );
+
+    final encryptedAssetPaths =
+        assetEncryptor.findings.map((f) => f.relativePath).toSet();
+    final unrewritten = AssetCallRewriter.rewriteDirectory(
+      libDir: p.join(stagingRoot, 'lib'),
+      encryptedAssetPaths: encryptedAssetPaths,
+      packageName: packageName,
+    );
+
+    SecretVaultGenerator.write(
+      projectRoot: stagingRoot,
+      findings: scanner.findings,
+      keyMaterial: keyMaterial,
+    );
+    if (assetEncryptor.findings.isNotEmpty) {
+      AssetVaultGenerator.write(projectRoot: stagingRoot);
+    }
+
+    ProjectStager.ensureRuntimeDependency(stagingRoot);
+
+    Report.printSummary(
+      secrets: scanner.findings,
+      skippedSecrets: scanner.skipped,
+      assets: assetEncryptor.findings,
+      unrewrittenAssetPaths: unrewritten,
+    );
+
+    var exitCode = 0;
+    if (buildTarget != null) {
+      exitCode = await FlutterBuildRunner.build(
+        projectRoot: stagingRoot,
+        target: buildTarget,
+        splitDebugInfoDir:
+            splitDebugInfoDir ?? p.join(stagingRoot, 'debug-symbols'),
+      );
+
+      if (exitCode == 0 && verify) {
+        final artifactPath = _findBuiltArtifact(stagingRoot, buildTarget);
+        if (artifactPath == null) {
+          stdout
+              .writeln('Could not locate a built artifact to verify for target '
+                  '"$buildTarget" — skipping plaintext verification.');
+        } else {
+          final results = PlaintextVerifier.verify(
+            artifactPath: artifactPath,
+            secrets: scanner.findings
+                .map((f) => (
+                      id: f.id,
+                      variableName: f.variableName,
+                      plainText: f.plainText,
+                    ))
+                .toList(),
+          );
+          Report.printVerification(results);
+        }
+      }
+    }
+
+    return PipelineResult(stagedProjectRoot: stagingRoot, exitCode: exitCode);
+  }
+
+  static String? _findBuiltArtifact(String projectRoot, String target) {
+    final candidates = <String>[];
+    switch (target) {
+      case 'apk':
+        candidates
+            .add(p.join(projectRoot, 'build', 'app', 'outputs', 'flutter-apk'));
+        break;
+      case 'appbundle':
+        candidates.add(p.join(
+            projectRoot, 'build', 'app', 'outputs', 'bundle', 'release'));
+        break;
+      case 'ipa':
+        candidates.add(p.join(projectRoot, 'build', 'ios', 'ipa'));
+        break;
+    }
+    for (final dir in candidates) {
+      final d = Directory(dir);
+      if (!d.existsSync()) continue;
+      final match = d
+          .listSync()
+          .whereType<File>()
+          .where((f) =>
+              f.path.endsWith('.apk') ||
+              f.path.endsWith('.aab') ||
+              f.path.endsWith('.ipa'))
+          .toList();
+      if (match.isNotEmpty) return match.first.path;
+    }
+    return null;
+  }
+}

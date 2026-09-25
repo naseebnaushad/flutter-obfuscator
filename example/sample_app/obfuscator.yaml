@@ -1,0 +1,10 @@
+secrets:
+  patterns:
+    - 'api[_-]?key'
+    - 'token'
+    - 'secret'
+  min_entropy: 3.0
+
+assets:
+  include:
+    - "assets/config/**"

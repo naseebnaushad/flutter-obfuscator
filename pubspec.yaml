@@ -1,0 +1,28 @@
+name: flutter_obfuscator
+description: >
+  Build-time obfuscation for Flutter apps: encrypts hardcoded secrets and
+  sensitive bundled assets so they don't show up in plaintext under static
+  analysis (strings/grep/JADX-style extraction) during VAPT.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dependencies:
+  analyzer: ^6.4.1
+  args: ^2.5.0
+  yaml: ^3.1.2
+  path: ^1.9.0
+  glob: ^2.1.2
+  crypto: ^3.0.3
+  cryptography: ^2.7.0
+  collection: ^1.18.0
+  archive: ^3.4.10
+
+dev_dependencies:
+  test: ^1.25.0
+  lints: ^4.0.0
+
+executables:
+  flutter_obfuscator: flutter_obfuscator

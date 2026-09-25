@@ -1,0 +1,15 @@
+name: sample_app
+description: Sample project used to smoke-test flutter_obfuscator.
+publish_to: none
+version: 1.0.0
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+  assets:
+    - assets/config/
