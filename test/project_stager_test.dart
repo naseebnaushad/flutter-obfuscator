@@ -17,7 +17,8 @@ void main() {
 
   void writePubspec(String projectRoot, {String name = 'sample_app'}) {
     Directory(projectRoot).createSync(recursive: true);
-    File(p.join(projectRoot, 'pubspec.yaml')).writeAsStringSync('name: $name\n');
+    File(p.join(projectRoot, 'pubspec.yaml'))
+        .writeAsStringSync('name: $name\n');
   }
 
   test('copies sourceRoot into a distinct stagingRoot', () {
@@ -65,7 +66,8 @@ void main() {
     expect(File(p.join(projectRoot, 'pubspec.yaml')).existsSync(), isTrue);
   });
 
-  test('treats equivalent but differently-written paths as the same '
+  test(
+      'treats equivalent but differently-written paths as the same '
       'directory', () {
     final projectRoot = p.join(tempDir.path, 'project');
     writePubspec(projectRoot);

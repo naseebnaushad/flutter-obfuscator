@@ -15,6 +15,7 @@ import 'native/android_native_key_generator.dart';
 import 'native/android_ndk_key_generator.dart';
 import 'native/android_network_security_config_generator.dart';
 import 'native/ios_native_key_generator.dart';
+import 'native/ios_ndk_key_generator.dart';
 import 'native/native_injection_result.dart';
 import 'pinning/pinned_http_client_generator.dart';
 import 'report/report.dart';
@@ -102,7 +103,8 @@ class Pipeline {
     if (config.keyStrategy.usesNativeChannel) {
       stdout.writeln('Wiring native key channel...');
       NativeKeyChannelGenerator.write(projectRoot: stagingRoot);
-      final androidResult = config.keyStrategy == KeyStrategy.nativeNdk
+      final isNdk = config.keyStrategy == KeyStrategy.nativeNdk;
+      final androidResult = isNdk
           ? AndroidNdkKeyGenerator.generate(
               projectRoot: stagingRoot,
               keyBytes: keyBytes,
@@ -111,13 +113,16 @@ class Pipeline {
               projectRoot: stagingRoot,
               keyBytes: keyBytes,
             );
-      nativeResults = [
-        androidResult,
-        IosNativeKeyGenerator.generate(
-          projectRoot: stagingRoot,
-          keyBytes: keyBytes,
-        ),
-      ];
+      final iosResult = isNdk
+          ? IosNdkKeyGenerator.generate(
+              projectRoot: stagingRoot,
+              keyBytes: keyBytes,
+            )
+          : IosNativeKeyGenerator.generate(
+              projectRoot: stagingRoot,
+              keyBytes: keyBytes,
+            );
+      nativeResults = [androidResult, iosResult];
     }
 
     ProjectStager.ensureRuntimeDependency(stagingRoot);

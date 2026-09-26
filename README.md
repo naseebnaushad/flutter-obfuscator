@@ -61,10 +61,10 @@ harder extraction path. It's still the same split/XOR obfuscation
 technique as v1, just relocated — see **Known limitations** below for
 what this still doesn't solve.
 
-## What it does (v3, opt-in, Android only)
+## What it does (v3 + v6, opt-in)
 
-Set `key_strategy: native_ndk` instead and, on Android, the key moves out
-of Kotlin/DEX entirely into a compiled C++ library:
+Set `key_strategy: native_ndk` instead and the key moves out of Kotlin/DEX
+(Android) and Swift (iOS) entirely into compiled C:
 
 9. **NDK/JNI key store** — generates a small CMake project under
    `android/app/src/main/cpp/flutter_obfuscator/` (`obfuscator_key.cpp` +
@@ -81,19 +81,33 @@ of Kotlin/DEX entirely into a compiled C++ library:
     only supports one CMake project per module, so if your project
     already configures `externalNativeBuild`, this is left alone and
     reported as skipped — merge the generated `CMakeLists.txt` by hand.
-11. **iOS is unchanged.** Swift already compiles to native machine code
-    (v2 already closed the "it's sitting in an easily-decompiled
-    intermediate format" gap there), so `native_ndk` reuses the exact
-    same iOS generator as `native_channel`. This strategy only changes
-    the Android backend.
+11. **iOS: compiled C key store (v6)** — generates a local CocoaPods pod
+    under `ios/FlutterObfuscatorKeyNative/` (`obfuscator_key.c` +
+    `obfuscator_key.h`, no Objective-C classes) holding the same
+    split/XOR key material and a `sysctl`-based `P_TRACED` check, built
+    as a static framework (`s.static_framework = true` in the generated
+    podspec) so the generated `ObfuscatorKeyPlugin.swift` can
+    `import FlutterObfuscatorKeyNative` without requiring
+    `use_frameworks!` project-wide. Wired in with one idempotent,
+    marker-based line added to `ios/Podfile` (`pod
+    'FlutterObfuscatorKeyNative', :path => ...`) rather than hand-editing
+    `project.pbxproj` — run `pod install` (or just `flutter build ios`,
+    which does it for you) afterward.
 
-Why this matters: Kotlin compiles to DEX, and JADX decompiles DEX back to
-near-original Kotlin/Java source in seconds — the v2 Android key material
-is genuinely easy to read once someone opens the APK in a decompiler. A
-stripped `.so` requires actual disassembly (`objdump`, Ghidra, IDA)
-instead, which is a real jump in effort. It is still findable by someone
-willing to do that work, and still requires the NDK to be installed to
-build — see **Known limitations**.
+Why this matters, and why it's a different jump on each platform: Kotlin
+compiles to DEX, and JADX decompiles DEX back to near-original Kotlin/Java
+source in seconds — the v2 Android key material is genuinely easy to read
+once someone opens the APK in a decompiler. A stripped `.so` requires
+actual disassembly (`objdump`, Ghidra, IDA) instead, which is a real jump
+in effort, and still requires the NDK to be installed to build. Swift
+already compiles to native machine code, so there's no equivalent
+bytecode-vs-native jump on iOS — what plain, `static`-internal C with
+hidden symbol visibility buys there instead is denying a decompiler the
+rich Swift metadata (mangled type/method names, reflection info) and
+Objective-C selector/class-name strings it otherwise leans on to
+reconstruct near-source pseudocode, leaving only an anonymous stripped
+function. Both are still findable by someone willing to do that work —
+see **Known limitations**.
 
 ## What it does (v4, opt-in)
 
@@ -107,12 +121,13 @@ Set `tamper_detection.enabled: true` in `obfuscator.yaml` and a generated
     `/data/local/tmp/re.frida.server` binary, and `frida`/`xposed`/
     `substrate` strings in `/proc/self/maps`.
 13. **Native reinforcement, when a native `key_strategy` is set** —
-    `ObfuscatorKeyPlugin` (Kotlin/v2, C++/v3, Swift) grows an `isTraced()`
-    check: Android reads `TracerPid` from `/proc/self/status`, iOS reads
-    the `P_TRACED` flag via `sysctl`. Either is nonzero/set the moment a
-    debugger or ptrace-based tool (Frida included) attaches to the
-    process, and it's checked from native code rather than Dart, so it's
-    one step further from a Frida script hooking a Dart-visible function.
+    `ObfuscatorKeyPlugin` (Kotlin/v2, C++/v3, Swift/v2, C/v6) grows an
+    `isTraced()` check: Android reads `TracerPid` from `/proc/self/status`,
+    iOS reads the `P_TRACED` flag via `sysctl`. Either is nonzero/set the
+    moment a debugger or ptrace-based tool (Frida included) attaches to
+    the process, and it's checked from native code rather than Dart, so
+    it's one step further from a Frida script hooking a Dart-visible
+    function.
 14. **Gate behavior** — `tamper_detection.mode: block` (the default) makes
     `SecretVault.init()`/`AssetVault.load()` throw
     `TamperDetectedException` instead of decrypting when any signal
@@ -236,7 +251,7 @@ assets:
   exclude:
     - 'assets/config/public_readme.md'
 
-key_strategy: dart_split # 'dart_split' (v1) | 'native_channel' (v2) | 'native_ndk' (v3)
+key_strategy: dart_split # 'dart_split' (v1) | 'native_channel' (v2) | 'native_ndk' (v3 Android + v6 iOS)
 
 tamper_detection:         # v4, opt-in, default disabled
   enabled: false
@@ -292,17 +307,26 @@ certificate_pinning:      # v5, opt-in, default disabled
   runtime either way. It only auto-wires the standard `flutter create`
   `MainActivity.kt`/`AppDelegate.swift` shapes — anything else is
   reported as skipped, not silently broken.
-- **v3 (`key_strategy: native_ndk`) only hardens the Android backend.**
-  It raises the bar from "decompile DEX with JADX" to "disassemble a
-  stripped `.so`" for the key material specifically — a real jump in
-  effort, but not a wall: the key is still there in the binary for
-  someone willing to do that work, and a Frida hook on the MethodChannel
-  call or `SecretVault.get`/`AssetVault.load` still defeats it at
-  runtime regardless of where the key lives. It requires the Android NDK
-  to be installed to build (a normal `flutter build apk` doesn't need
-  it), only supports one CMake native build per module (a project that
-  already uses `externalNativeBuild` is left alone and reported as
-  skipped), and doesn't change anything on iOS.
+- **`key_strategy: native_ndk` (v3 Android, v6 iOS) is a real jump in
+  reverse-engineering effort, not a wall.** On Android it raises the bar
+  from "decompile DEX with JADX" to "disassemble a stripped `.so`" for
+  the key material specifically. On iOS, where Swift already compiles to
+  native machine code, the jump is narrower: moving to plain C with
+  hidden symbol visibility denies a decompiler the Swift metadata and
+  Objective-C selector strings it would otherwise use, but doesn't add a
+  bytecode-vs-native gap the way the Android change does. On both
+  platforms the key is still physically present in the binary for
+  someone willing to disassemble it, and a Frida hook on the
+  MethodChannel call or `SecretVault.get`/`AssetVault.load` still
+  defeats it at runtime regardless of where the key lives. It requires
+  the Android NDK to be installed to build (a normal `flutter build apk`
+  doesn't need it) and only supports one CMake native build per module
+  on Android (a project that already uses `externalNativeBuild` is left
+  alone and reported as skipped); on iOS it requires CocoaPods and a
+  `pod install` (or `flutter build ios`, which runs it for you) after
+  generation, and only auto-wires a Podfile with the standard
+  `flutter create` `target 'Runner' do` block — anything else is
+  reported as skipped, not silently broken.
 - **Only variable declarations are auto-transformed.** A bare string
   literal used inline (not assigned to a `const`/`final` field) is not
   rewritten — refactor it into a named constant first (good practice

@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:path/path.dart' as p;
 
 import '../crypto/key_split_plan.dart';
+import 'ios_app_delegate_injector.dart';
 import 'native_injection_result.dart';
 
 /// Generates the iOS half of the v2 native key channel: a Swift enum
@@ -15,43 +16,24 @@ import 'native_injection_result.dart';
 /// Only the standard `flutter create` AppDelegate shape is patched;
 /// anything else is reported as skipped with instructions.
 class IosNativeKeyGenerator {
-  static const _beginMarker = '// BEGIN FLUTTER_OBFUSCATOR KEY CHANNEL';
-  static const _endMarker = '// END FLUTTER_OBFUSCATOR KEY CHANNEL';
-  static final _registrantCall =
-      RegExp(r'GeneratedPluginRegistrant\.register\(with:\s*self\)[ \t]*\n?');
-
   static NativeInjectionResult generate({
     required String projectRoot,
     required List<int> keyBytes,
     Random? random,
   }) {
-    final runnerDir = Directory(p.join(projectRoot, 'ios', 'Runner'));
-    if (!runnerDir.existsSync()) {
+    final located = IosAppDelegateInjector.locate(projectRoot);
+    if (located.file == null) {
       return NativeInjectionResult(
-        platform: 'ios',
-        applied: false,
-        reason: 'no ios/Runner directory found — is this an iOS-enabled '
-            'Flutter project?',
-      );
+          platform: 'ios', applied: false, reason: located.reason);
     }
+    final appDelegateFile = located.file!;
 
-    final appDelegateFile = File(p.join(runnerDir.path, 'AppDelegate.swift'));
-    if (!appDelegateFile.existsSync()) {
-      return NativeInjectionResult(
-        platform: 'ios',
-        applied: false,
-        reason: 'no ios/Runner/AppDelegate.swift found (an Objective-C '
-            'AppDelegate.m project is not auto-wired in v2 — register '
-            'ObfuscatorKeyPlugin manually, see README)',
-      );
-    }
-
-    final pluginFile =
-        File(p.join(runnerDir.path, 'ObfuscatorKeyPlugin.swift'));
+    final pluginFile = File(
+        p.join(p.dirname(appDelegateFile.path), 'ObfuscatorKeyPlugin.swift'));
     pluginFile.writeAsStringSync(_pluginSource(keyBytes, random: random));
 
     final source = appDelegateFile.readAsStringSync();
-    final injected = _injectIntoAppDelegate(source);
+    final injected = IosAppDelegateInjector.inject(source);
     if (injected == null) {
       return NativeInjectionResult(
         platform: 'ios',
@@ -75,26 +57,6 @@ class IosNativeKeyGenerator {
       entryPointPath: appDelegateFile.path,
       pluginFilePath: pluginFile.path,
     );
-  }
-
-  static String? _injectIntoAppDelegate(String source) {
-    var working = source;
-
-    final markerBlock = RegExp(
-      '${RegExp.escape(_beginMarker)}[\\s\\S]*?${RegExp.escape(_endMarker)}\\n?',
-    );
-    working = working.replaceAll(markerBlock, '');
-
-    final match = _registrantCall.firstMatch(working);
-    if (match == null) return null;
-
-    final registration = '''
-    $_beginMarker
-    ObfuscatorKeyPlugin.register(with: self.registrar(forPlugin: "ObfuscatorKeyPlugin")!)
-    $_endMarker
-''';
-
-    return working.replaceRange(match.end, match.end, registration);
   }
 
   static String _pluginSource(List<int> keyBytes, {Random? random}) {

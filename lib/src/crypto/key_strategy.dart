@@ -15,15 +15,17 @@ enum KeyStrategy {
   /// Dart obfuscation this whole tool otherwise targets.
   nativeChannel,
 
-  /// v3: same MethodChannel shape as [nativeChannel], but on Android the
-  /// key material and its XOR-combine logic live in a compiled C++
-  /// library (JNI, built via CMake/NDK) instead of Kotlin. Kotlin
-  /// compiles to DEX, which JADX decompiles back to near-original
-  /// source trivially; a stripped `.so` requires disassembly
-  /// (objdump/Ghidra/IDA) instead, a meaningfully higher bar. iOS is
-  /// unaffected — Swift already compiles to native machine code, so v2
-  /// already closed that gap there; this strategy reuses the same iOS
-  /// generator as [nativeChannel].
+  /// v3/v6: same MethodChannel shape as [nativeChannel], but the key
+  /// material and its XOR-combine logic live in compiled C instead of
+  /// Kotlin/Swift, on both platforms. On Android that's a jump from DEX
+  /// (which JADX decompiles back to near-original source trivially) to a
+  /// stripped `.so` requiring disassembly (objdump/Ghidra/IDA) instead —
+  /// a meaningfully higher bar. Swift already compiles to native machine
+  /// code, so there's no equivalent bytecode-vs-native jump on iOS; the
+  /// gain there is denying a decompiler the rich Swift metadata
+  /// (mangled type/method names, reflection info) it otherwise leans on
+  /// — plain, `static`-internal C with hidden symbol visibility leaves
+  /// only an anonymous stripped function.
   nativeNdk;
 
   static KeyStrategy parse(String? value) {
