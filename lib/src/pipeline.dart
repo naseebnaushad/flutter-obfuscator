@@ -18,6 +18,7 @@ import 'native/android_network_security_config_generator.dart';
 import 'native/ios_native_key_generator.dart';
 import 'native/ios_ndk_key_generator.dart';
 import 'native/native_injection_result.dart';
+import 'obfuscate/identifier_obfuscator.dart';
 import 'pinning/pinned_http_client_generator.dart';
 import 'report/report.dart';
 import 'secrets/secret_scanner.dart';
@@ -154,6 +155,15 @@ class Pipeline {
       );
     }
 
+    final identifierObfuscator = IdentifierObfuscator();
+    if (config.identifierObfuscation.enabled) {
+      stdout.writeln('Obfuscating private (_-prefixed) Dart identifiers...');
+      identifierObfuscator.obfuscateDirectory(
+        p.join(stagingRoot, 'lib'),
+        excludeGlobs: config.excludeFiles,
+      );
+    }
+
     Report.printSummary(
       secrets: scanner.findings,
       skippedSecrets: scanner.skipped,
@@ -165,6 +175,9 @@ class Pipeline {
       certPinningEnabled: config.certPinning.enabled,
       certPinningHostCount: config.certPinning.hosts.length,
       androidNetworkSecurityConfigResult: androidNetworkSecurityResult,
+      identifierObfuscationEnabled: config.identifierObfuscation.enabled,
+      renamedIdentifierFiles: identifierObfuscator.renamedFiles,
+      skippedIdentifierFiles: identifierObfuscator.skippedFiles,
     );
 
     var exitCode = 0;

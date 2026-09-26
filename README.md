@@ -235,6 +235,35 @@ a URL, a service-account JSON shipped as a bundled asset because "it's
 just config" — and previously those slipped through untouched. v7 doesn't
 change how anything is encrypted; it only widens what gets *found*.
 
+## What it does (v8, opt-in)
+
+19. **Private identifier obfuscation** — every `_`-prefixed declaration in
+    your `lib/` (private classes, mixins, enums, extensions, top-level
+    functions/variables, and class members: fields, methods, getters/
+    setters, named constructors) is renamed to a short meaningless name
+    like `_o7`, consistently across every reference to it. Public API —
+    anything without a leading underscore, including Flutter overrides
+    like `build`/`initState`/`dispose` — is never touched, so this can't
+    break your widget tree or a `flutter build` that relies on those
+    names. Turn it on with `identifiers.enabled: true`.
+
+    Dart privacy is scoped to the *library* (in practice, one file), so
+    every occurrence of a given private name inside a file refers to the
+    same declaration and can be renamed as a single unit with no
+    whole-program analysis — this runs a per-file pass, not a
+    resolve-the-whole-package one. A file that uses `part`/`part of`
+    (privacy spanning multiple files) is left untouched rather than risk
+    renaming inconsistently across the group; the run summary lists any
+    file skipped this way.
+
+    Why this matters: even with secrets and assets encrypted, a
+    decompiled/deobfuscated APK or IPA still hands an attacker every
+    private class, field, and method name verbatim — which is often
+    enough on its own to map out business logic, validation rules, or an
+    unusual auth flow worth attacking further. Renaming them doesn't stop
+    static analysis of the *structure* of your code, but it removes the
+    free, readable labels that make that analysis fast.
+
 All of this runs against a **staged copy** of your project
 (`<project>/build/obfuscated` by default) so your working tree is never
 touched, unless you explicitly ask for `apply` (in-place).
@@ -306,6 +335,9 @@ certificate_pinning:      # v5, opt-in, default disabled
       spki_sha256:
         - 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=' # primary
         - 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=' # backup, for rotation
+
+identifiers:              # v8, opt-in, default disabled
+  enabled: false           # rename private (_-prefixed) declarations across lib/
 ```
 
 ## Known limitations (read this before a VAPT sign-off)
@@ -422,6 +454,19 @@ certificate_pinning:      # v5, opt-in, default disabled
   flutter_obfuscator before a pinned certificate expires or is rotated.
   Listing a primary pin plus a backup for the next certificate avoids
   locking out every installed copy of the app on a routine renewal.
+- **v8 (`identifiers.enabled`) only renames `_`-prefixed declarations, and
+  only within a single file.** A file using `part`/`part of` is skipped
+  entirely (privacy spans the whole part-file group, which this pass
+  doesn't analyze) rather than risk an inconsistent rename — check the run
+  summary's "Files left untouched" list. It also doesn't rename anything
+  reachable by name from a string: `dart:mirrors`-based reflection,
+  `noSuchMethod` dynamic dispatch, and manual `Map<String, dynamic>`
+  parsing that matches keys against a private field's name (rather than
+  using `json_serializable`/`freezed`, whose generated code is excluded
+  from renaming by `exclude_files` anyway) can all still leak or break on
+  the original name, since string literal contents are never rewritten.
+  It obfuscates **names**, not control flow or logic — decompiled code is
+  still fully readable, just without meaningful labels.
 
 ## Development
 

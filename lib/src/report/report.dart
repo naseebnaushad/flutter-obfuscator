@@ -4,6 +4,7 @@ import '../config/tamper_config.dart';
 import '../secrets/secret_finding.dart';
 import '../assets/asset_finding.dart';
 import '../native/native_injection_result.dart';
+import '../obfuscate/identifier_rename_result.dart';
 import '../verify/plaintext_verifier.dart';
 
 /// Prints a human-readable summary of what an obfuscation run did, so
@@ -20,6 +21,9 @@ class Report {
     bool certPinningEnabled = false,
     int certPinningHostCount = 0,
     NativeInjectionResult? androidNetworkSecurityConfigResult,
+    bool identifierObfuscationEnabled = false,
+    List<RenamedFileResult> renamedIdentifierFiles = const [],
+    List<SkippedFileResult> skippedIdentifierFiles = const [],
   }) {
     stdout.writeln('');
     stdout.writeln('flutter_obfuscator summary');
@@ -81,6 +85,22 @@ class Report {
           ? '  - android: network_security_config.xml wired into '
               '${r.entryPointPath}'
           : '  - android: NOT wired — ${r.reason}');
+    }
+    if (identifierObfuscationEnabled) {
+      final totalRenames =
+          renamedIdentifierFiles.fold<int>(0, (sum, f) => sum + f.renameCount);
+      stdout.writeln('Identifier obfuscation: enabled — $totalRenames '
+          'private name(s) renamed across ${renamedIdentifierFiles.length} '
+          'file(s).');
+      if (skippedIdentifierFiles.isNotEmpty) {
+        stdout.writeln('  Files left untouched:');
+        for (final s in skippedIdentifierFiles) {
+          stdout.writeln('    - ${s.filePath}: ${s.reason}');
+        }
+      }
+    } else {
+      stdout.writeln('Identifier obfuscation: disabled (set '
+          'identifiers.enabled: true in obfuscator.yaml to turn it on)');
     }
     stdout.writeln('');
   }

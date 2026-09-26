@@ -4,6 +4,7 @@ import 'package:yaml/yaml.dart';
 
 import '../crypto/key_strategy.dart';
 import 'cert_pinning_config.dart';
+import 'identifier_obfuscation_config.dart';
 import 'tamper_config.dart';
 
 /// Parsed contents of `obfuscator.yaml`.
@@ -20,8 +21,11 @@ class ObfuscatorConfig {
     required this.keyStrategy,
     TamperConfig? tamperDetection,
     CertPinningConfig? certPinning,
+    IdentifierObfuscationConfig? identifierObfuscation,
   })  : tamperDetection = tamperDetection ?? TamperConfig.disabled(),
-        certPinning = certPinning ?? CertPinningConfig.disabled();
+        certPinning = certPinning ?? CertPinningConfig.disabled(),
+        identifierObfuscation =
+            identifierObfuscation ?? IdentifierObfuscationConfig.disabled();
 
   final List<RegExp> secretPatterns;
   final List<String> secretAnnotations;
@@ -56,6 +60,12 @@ class ObfuscatorConfig {
   /// `network_security_config.xml`). Disabled by default.
   final CertPinningConfig certPinning;
 
+  /// v8, opt-in: renames private (`_`-prefixed) declarations — classes,
+  /// mixins, enums, extensions, top-level members, and class members —
+  /// to meaningless names across the staged copy. Disabled by default.
+  /// See `IdentifierObfuscator`.
+  final IdentifierObfuscationConfig identifierObfuscation;
+
   static const List<String> _defaultPatternStrings = [
     r'api[_-]?key',
     r'apikey',
@@ -80,6 +90,7 @@ class ObfuscatorConfig {
         assetExcludes: const [],
         assetAutoDetect: true,
         keyStrategy: KeyStrategy.dartSplit,
+        identifierObfuscation: IdentifierObfuscationConfig.disabled(),
       );
 
   /// Loads config from [path] if it exists, otherwise returns defaults.
@@ -132,6 +143,13 @@ class ObfuscatorConfig {
       hosts: _parseHostPins(pinningMap['pins']),
     );
 
+    final identifiersMap = map['identifiers'] is YamlMap
+        ? Map<String, dynamic>.from(map['identifiers'] as YamlMap)
+        : <String, dynamic>{};
+    final identifierObfuscation = IdentifierObfuscationConfig(
+      enabled: identifiersMap['enabled'] as bool? ?? false,
+    );
+
     return ObfuscatorConfig(
       secretPatterns:
           patternStrings.map((p) => RegExp(p, caseSensitive: false)).toList(),
@@ -145,6 +163,7 @@ class ObfuscatorConfig {
       keyStrategy: keyStrategy,
       tamperDetection: tamperDetection,
       certPinning: certPinning,
+      identifierObfuscation: identifierObfuscation,
     );
   }
 

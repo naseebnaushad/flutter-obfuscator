@@ -161,6 +161,25 @@ certificate_pinning:
     dir.deleteSync(recursive: true);
   });
 
+  test('defaults() has identifier obfuscation disabled', () {
+    final config = ObfuscatorConfig.defaults();
+    expect(config.identifierObfuscation.enabled, isFalse);
+  });
+
+  test('load() reads identifiers.enabled', () {
+    final dir = Directory.systemTemp.createTempSync('obf_config_test_');
+    final file = File('${dir.path}/obfuscator.yaml');
+    file.writeAsStringSync('''
+identifiers:
+  enabled: true
+''');
+
+    final config = ObfuscatorConfig.load(file.path);
+    expect(config.identifierObfuscation.enabled, isTrue);
+
+    dir.deleteSync(recursive: true);
+  });
+
   test('load() rejects a pin entry missing host', () {
     final dir = Directory.systemTemp.createTempSync('obf_config_test_');
     final file = File('${dir.path}/obfuscator.yaml');
