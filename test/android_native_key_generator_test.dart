@@ -58,6 +58,8 @@ class MainActivity: FlutterActivity()
     expect(pluginSource, contains('package com.example.sample_app'));
     expect(pluginSource, contains('flutter_obfuscator/key'));
     expect(pluginSource, contains('fun materialize(): ByteArray'));
+    expect(pluginSource, contains('"isTraced" -> result.success(isTraced())'));
+    expect(pluginSource, contains('TracerPid:'));
   });
 
   test('wires a MainActivity.kt that already has a body', () {

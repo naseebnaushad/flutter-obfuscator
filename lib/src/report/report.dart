@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import '../config/tamper_config.dart';
 import '../secrets/secret_finding.dart';
 import '../assets/asset_finding.dart';
 import '../native/native_injection_result.dart';
@@ -14,6 +15,8 @@ class Report {
     required List<AssetFinding> assets,
     required Set<String> unrewrittenAssetPaths,
     List<NativeInjectionResult> nativeKeyChannelResults = const [],
+    bool tamperDetectionEnabled = false,
+    TamperMode tamperDetectionMode = TamperMode.block,
   }) {
     stdout.writeln('');
     stdout.writeln('flutter_obfuscator summary');
@@ -53,6 +56,15 @@ class Report {
         }
       }
     }
+    stdout.writeln('');
+    stdout.writeln(tamperDetectionEnabled
+        ? 'Tamper detection: enabled (mode: '
+            '${tamperDetectionMode == TamperMode.block ? 'block' : 'log'}) — '
+            'root/jailbreak/Frida heuristics gate SecretVault/AssetVault '
+            'decryption. This is a heuristic speed bump, not a wall — see '
+            'README Known limitations.'
+        : 'Tamper detection: disabled (set tamper_detection.enabled: true '
+            'in obfuscator.yaml to turn it on)');
     stdout.writeln('');
   }
 

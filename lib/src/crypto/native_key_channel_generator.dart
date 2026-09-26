@@ -45,6 +45,20 @@ class NativeKeyChannel {
     }
     return result;
   }
+
+  /// Asks native code whether a debugger/tracer is currently attached to
+  /// this process (Android: `TracerPid` in `/proc/self/status`; iOS: the
+  /// `P_TRACED` flag via `sysctl`). Used by `TamperGuard` (v4) as one
+  /// signal among several — see its doc comment for what this catches and
+  /// what it doesn't.
+  static Future<bool> isTraced() async {
+    try {
+      final result = await _channel.invokeMethod<bool>('isTraced');
+      return result ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
 }
 ''';
   }

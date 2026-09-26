@@ -68,6 +68,7 @@ android {
         File(p.join(p.dirname(activityFile.path), 'ObfuscatorKeyPlugin.kt'));
     final pluginSource = pluginFile.readAsStringSync();
     expect(pluginSource, contains('external fun nativeMaterializeKey()'));
+    expect(pluginSource, contains('external fun nativeIsTraced()'));
     expect(pluginSource, contains('System.loadLibrary("obfuscator_key")'));
 
     final cppFile = File(p.join(tempDir.path, 'android', 'app', 'src', 'main',
@@ -76,6 +77,8 @@ android {
     final cppSource = cppFile.readAsStringSync();
     expect(cppSource, contains('JNI_OnLoad'));
     expect(cppSource, contains('RegisterNatives'));
+    expect(cppSource, contains('NativeIsTraced'));
+    expect(cppSource, contains('TracerPid:'));
     expect(cppSource,
         contains('FindClass("com/example/sample_app/ObfuscatorKeyPlugin")'));
 

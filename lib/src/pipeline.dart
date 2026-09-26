@@ -19,6 +19,7 @@ import 'report/report.dart';
 import 'secrets/secret_scanner.dart';
 import 'secrets/secret_vault_generator.dart';
 import 'staging/project_stager.dart';
+import 'tamper/tamper_guard_generator.dart';
 import 'verify/plaintext_verifier.dart';
 
 class PipelineResult {
@@ -72,16 +73,26 @@ class Pipeline {
       packageName: packageName,
     );
 
+    if (config.tamperDetection.enabled) {
+      stdout.writeln('Wiring tamper detection (TamperGuard)...');
+      TamperGuardGenerator.write(
+        projectRoot: stagingRoot,
+        keyStrategy: config.keyStrategy,
+      );
+    }
+
     SecretVaultGenerator.write(
       projectRoot: stagingRoot,
       findings: scanner.findings,
       keyStrategy: config.keyStrategy,
       keyMaterial: keyMaterial,
+      tamperConfig: config.tamperDetection,
     );
     if (assetEncryptor.findings.isNotEmpty) {
       AssetVaultGenerator.write(
         projectRoot: stagingRoot,
         keyStrategy: config.keyStrategy,
+        tamperConfig: config.tamperDetection,
       );
     }
 
@@ -115,6 +126,8 @@ class Pipeline {
       assets: assetEncryptor.findings,
       unrewrittenAssetPaths: unrewritten,
       nativeKeyChannelResults: nativeResults,
+      tamperDetectionEnabled: config.tamperDetection.enabled,
+      tamperDetectionMode: config.tamperDetection.mode,
     );
 
     var exitCode = 0;

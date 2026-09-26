@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+import '../config/tamper_config.dart';
 import '../crypto/key_strategy.dart';
 
 /// Writes `lib/flutter_obfuscator/asset_vault.g.dart`, which decrypts
@@ -13,14 +14,16 @@ class AssetVaultGenerator {
   static void write({
     required String projectRoot,
     required KeyStrategy keyStrategy,
+    TamperConfig? tamperConfig,
   }) {
     final dir = Directory(p.join(projectRoot, 'lib', 'flutter_obfuscator'));
     dir.createSync(recursive: true);
-    File(p.join(dir.path, 'asset_vault.g.dart'))
-        .writeAsStringSync(_source(keyStrategy));
+    File(p.join(dir.path, 'asset_vault.g.dart')).writeAsStringSync(
+      _source(keyStrategy, tamperConfig ?? TamperConfig.disabled()),
+    );
   }
 
-  static String _source(KeyStrategy keyStrategy) {
+  static String _source(KeyStrategy keyStrategy, TamperConfig tamperConfig) {
     final isNative = keyStrategy.usesNativeChannel;
     final keyImport = isNative
         ? "import 'native_key_channel.g.dart';"
@@ -28,6 +31,16 @@ class AssetVaultGenerator {
     final keyFetch = isNative
         ? 'final keyBytes = await NativeKeyChannel.fetchKey();'
         : 'final keyBytes = _ObfKeyMaterial.materialize();';
+    final tamperImport =
+        tamperConfig.enabled ? "\nimport 'tamper_guard.g.dart';" : '';
+    final tamperCheck = tamperConfig.enabled
+        ? '''
+    final tamperReport = await TamperGuard.scan();
+    if (tamperReport.suspicious) {
+      ${tamperConfig.mode == TamperMode.block ? 'throw TamperDetectedException(tamperReport);' : "// ignore: avoid_print\n      print('flutter_obfuscator: tamper signals detected: \${tamperReport.signals.join(', ')}');"}
+    }
+'''
+        : '';
     final limitationDoc = isNative
         ? '/// v2: fetches the key from native code over a MethodChannel — see\n'
             "/// `SecretVault`'s doc comment for what that does and does not defend\n"
@@ -46,7 +59,7 @@ import 'dart:typed_data';
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter/services.dart' show rootBundle;
 
-$keyImport
+$keyImport$tamperImport
 
 /// Loads assets that flutter_obfuscator encrypted in place at build
 /// time. Drop-in replacement for the `rootBundle.load`/`loadString`
@@ -77,7 +90,7 @@ class AssetVault {
     offset += macLen;
     final cipherText = bytes.sublist(offset);
 
-    $keyFetch
+$tamperCheck    $keyFetch
     final algorithm = AesGcm.with256bits();
     final box = SecretBox(cipherText, nonce: nonce, mac: Mac(mac));
     final clear =

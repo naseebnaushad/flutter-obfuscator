@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+import '../config/tamper_config.dart';
 import '../crypto/key_material.dart';
 import '../crypto/key_strategy.dart';
 import 'secret_finding.dart';
@@ -20,6 +21,7 @@ class SecretVaultGenerator {
     required List<SecretFinding> findings,
     required KeyStrategy keyStrategy,
     VaultKeyMaterial? keyMaterial,
+    TamperConfig? tamperConfig,
   }) {
     final dir = Directory(p.join(projectRoot, 'lib', 'flutter_obfuscator'));
     dir.createSync(recursive: true);
@@ -36,8 +38,9 @@ class SecretVaultGenerator {
     File(p.join(dir.path, 'secret_vault_data.g.dart'))
         .writeAsStringSync(_dataFileSource(findings));
 
-    File(p.join(dir.path, 'secret_vault.g.dart'))
-        .writeAsStringSync(_vaultFileSource(keyStrategy));
+    File(p.join(dir.path, 'secret_vault.g.dart')).writeAsStringSync(
+      _vaultFileSource(keyStrategy, tamperConfig ?? TamperConfig.disabled()),
+    );
   }
 
   static String _dataFileSource(List<SecretFinding> findings) {
@@ -63,7 +66,10 @@ class SecretVaultGenerator {
     return buffer.toString();
   }
 
-  static String _vaultFileSource(KeyStrategy keyStrategy) {
+  static String _vaultFileSource(
+    KeyStrategy keyStrategy,
+    TamperConfig tamperConfig,
+  ) {
     final isNative = keyStrategy.usesNativeChannel;
     final keyImport = isNative
         ? "import 'native_key_channel.g.dart';"
@@ -71,6 +77,16 @@ class SecretVaultGenerator {
     final keyFetch = isNative
         ? 'final keyBytes = await NativeKeyChannel.fetchKey();'
         : 'final keyBytes = _ObfKeyMaterial.materialize();';
+    final tamperImport =
+        tamperConfig.enabled ? "\nimport 'tamper_guard.g.dart';" : '';
+    final tamperCheck = tamperConfig.enabled
+        ? '''
+    final tamperReport = await TamperGuard.scan();
+    if (tamperReport.suspicious) {
+      ${tamperConfig.mode == TamperMode.block ? 'throw TamperDetectedException(tamperReport);' : "// ignore: avoid_print\n      print('flutter_obfuscator: tamper signals detected: \${tamperReport.signals.join(', ')}');"}
+    }
+'''
+        : '';
     final limitationDoc = isNative
         ? '/// v2: the decryption key is fetched from native code (Kotlin/Swift)\n'
             '/// over a MethodChannel — see ObfuscatorKeyPlugin.kt/.swift. It is\n'
@@ -94,7 +110,7 @@ import 'dart:convert';
 import 'package:cryptography/cryptography.dart';
 
 $keyImport
-import 'secret_vault_data.g.dart';
+import 'secret_vault_data.g.dart';$tamperImport
 
 /// Runtime access to hardcoded secrets encrypted at build time by
 /// flutter_obfuscator.
@@ -111,7 +127,7 @@ class SecretVault {
 
   static Future<void> init() async {
     if (_initialized) return;
-    $keyFetch
+$tamperCheck    $keyFetch
     final algorithm = AesGcm.with256bits();
     final secretKey = SecretKey(keyBytes);
 

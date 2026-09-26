@@ -95,6 +95,46 @@ instead, which is a real jump in effort. It is still findable by someone
 willing to do that work, and still requires the NDK to be installed to
 build — see **Known limitations**.
 
+## What it does (v4, opt-in)
+
+Set `tamper_detection.enabled: true` in `obfuscator.yaml` and a generated
+`TamperGuard` gates every `SecretVault.init()` / `AssetVault.load()` call:
+
+12. **Root/jailbreak/Frida heuristics** — before decrypting anything,
+    `TamperGuard.scan()` checks for common root binaries and Magisk paths
+    (Android), jailbreak paths like Cydia/MobileSubstrate (iOS), a
+    listening default frida-server port (27042/27043), a
+    `/data/local/tmp/re.frida.server` binary, and `frida`/`xposed`/
+    `substrate` strings in `/proc/self/maps`.
+13. **Native reinforcement, when a native `key_strategy` is set** —
+    `ObfuscatorKeyPlugin` (Kotlin/v2, C++/v3, Swift) grows an `isTraced()`
+    check: Android reads `TracerPid` from `/proc/self/status`, iOS reads
+    the `P_TRACED` flag via `sysctl`. Either is nonzero/set the moment a
+    debugger or ptrace-based tool (Frida included) attaches to the
+    process, and it's checked from native code rather than Dart, so it's
+    one step further from a Frida script hooking a Dart-visible function.
+14. **Gate behavior** — `tamper_detection.mode: block` (the default) makes
+    `SecretVault.init()`/`AssetVault.load()` throw
+    `TamperDetectedException` instead of decrypting when any signal
+    fires; `mode: log` prints a warning and decrypts anyway (useful while
+    tuning for false positives on real devices before switching to
+    `block`).
+
+Why this matters, and why it isn't as strong as it sounds: every prior
+version (v1-v3) still calls `SecretVault.get()`/`AssetVault.load()` at
+some point, and hooking *that* call with Frida gets the plaintext
+regardless of where the key lived — v4 is the first version that actually
+tries to notice the tool doing the hooking, rather than just hiding the
+key better. But the checks themselves run in Dart or are reached over the
+same MethodChannel as the key fetch, so they're reachable by the same
+class of tool they're trying to catch: a reverse engineer can read
+`tamper_guard.g.dart` (it isn't obfuscated — it's the thing deciding
+whether to trust the environment) and write a Frida script that stubs out
+`TamperGuard.scan()`, `NativeKeyChannel.isTraced()`, or the native
+`isTraced`/`nativeIsTraced` function directly, before ever touching the
+key logic. Treat this as raising the cost of a casual/automated scan, not
+as a defense against a targeted attacker — see **Known limitations**.
+
 All of this runs against a **staged copy** of your project
 (`<project>/build/obfuscated` by default) so your working tree is never
 touched, unless you explicitly ask for `apply` (in-place).
@@ -150,16 +190,35 @@ assets:
     - 'assets/config/public_readme.md'
 
 key_strategy: dart_split # 'dart_split' (v1) | 'native_channel' (v2) | 'native_ndk' (v3)
+
+tamper_detection:         # v4, opt-in, default disabled
+  enabled: false
+  mode: block              # 'block' (default) | 'log'
 ```
 
 ## Known limitations (read this before a VAPT sign-off)
 
-- **Static-only.** This defeats `strings`/grep/JADX-style extraction —
-  the finding a VAPT report typically calls out. It does **not** stop a
-  motivated attacker with Frida or another dynamic instrumentation tool
-  hooking `SecretVault.get`/`AssetVault.load` at runtime, or hooking the
-  AES-GCM call itself. That needs root/jailbreak detection, anti-tampering,
-  and certificate pinning as separate controls.
+- **Static-only by default (v1-v3).** v1-v3 defeat `strings`/grep/
+  JADX-style extraction — the finding a VAPT report typically calls out.
+  On their own they do **not** stop a motivated attacker with Frida or
+  another dynamic instrumentation tool hooking `SecretVault.get`/
+  `AssetVault.load` at runtime, or hooking the AES-GCM call itself. v4
+  (below) is a first, limited step at addressing this; certificate
+  pinning and a real RASP/anti-tampering product are still separate
+  controls this tool does not provide.
+- **v4 (`tamper_detection`) is a heuristic speed bump, not a wall.**
+  Every check it runs (root/jailbreak file paths, the default frida-server
+  port, `/proc/self/maps`, `TracerPid`/`P_TRACED`) is either public
+  knowledge a real root/Frida setup can hide (renamed `su`, port other
+  than 27042, `frida-server` run with `--no-pause` after detaching, or
+  survived via `LD_PRELOAD` unlink tricks), or is itself reachable by a
+  Frida script that patches `TamperGuard.scan()` — or the native
+  `isTraced`/`nativeIsTraced` function it calls into — into always
+  returning "clean" before the real checks ever run. It is meant to catch
+  a default, un-hidden Frida/Magisk setup during a quick static or dynamic
+  pass, not to withstand someone specifically evading it. `mode: log`
+  exists to let you validate it doesn't false-positive on real devices
+  before ever setting `mode: block` in a shipped build.
 - **Key material is still in the Dart snapshot by default (v1,
   `key_strategy: dart_split`).** The AES key is split into several
   XORed, misleadingly-named constants (`_obf_key_material.g.dart`)

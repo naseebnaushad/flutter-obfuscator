@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:yaml/yaml.dart';
 
 import '../crypto/key_strategy.dart';
+import 'tamper_config.dart';
 
 /// Parsed contents of `obfuscator.yaml`.
 class ObfuscatorConfig {
@@ -14,7 +15,8 @@ class ObfuscatorConfig {
     required this.assetIncludes,
     required this.assetExcludes,
     required this.keyStrategy,
-  });
+    TamperConfig? tamperDetection,
+  }) : tamperDetection = tamperDetection ?? TamperConfig.disabled();
 
   final List<RegExp> secretPatterns;
   final List<String> secretAnnotations;
@@ -27,6 +29,10 @@ class ObfuscatorConfig {
   /// (v1, unchanged behavior); set `key_strategy: native_channel` in
   /// obfuscator.yaml to opt into the v2 native platform-channel key.
   final KeyStrategy keyStrategy;
+
+  /// v4, opt-in: root/jailbreak/Frida detection gating `SecretVault`/
+  /// `AssetVault` decryption. Disabled by default.
+  final TamperConfig tamperDetection;
 
   static const List<String> _defaultPatternStrings = [
     r'api[_-]?key',
@@ -81,6 +87,14 @@ class ObfuscatorConfig {
     final assetExcludes = _stringList(assets['exclude']) ?? const [];
     final keyStrategy = KeyStrategy.parse(map['key_strategy'] as String?);
 
+    final tamperMap = map['tamper_detection'] is YamlMap
+        ? Map<String, dynamic>.from(map['tamper_detection'] as YamlMap)
+        : <String, dynamic>{};
+    final tamperDetection = TamperConfig(
+      enabled: tamperMap['enabled'] as bool? ?? false,
+      mode: TamperMode.parse(tamperMap['mode'] as String?),
+    );
+
     return ObfuscatorConfig(
       secretPatterns:
           patternStrings.map((p) => RegExp(p, caseSensitive: false)).toList(),
@@ -90,6 +104,7 @@ class ObfuscatorConfig {
       assetIncludes: assetIncludes,
       assetExcludes: assetExcludes,
       keyStrategy: keyStrategy,
+      tamperDetection: tamperDetection,
     );
   }
 

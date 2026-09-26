@@ -67,6 +67,8 @@ import UIKit
     final pluginSource = pluginFile.readAsStringSync();
     expect(pluginSource, contains('flutter_obfuscator/key'));
     expect(pluginSource, contains('static func materialize() -> [UInt8]'));
+    expect(pluginSource, contains('case "isTraced":'));
+    expect(pluginSource, contains('P_TRACED'));
   });
 
   test('re-running is idempotent (no duplicate registrations)', () {

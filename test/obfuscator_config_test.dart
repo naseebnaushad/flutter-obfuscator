@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_obfuscator/src/config/obfuscator_config.dart';
+import 'package:flutter_obfuscator/src/config/tamper_config.dart';
 import 'package:flutter_obfuscator/src/crypto/key_strategy.dart';
 import 'package:test/test.dart';
 
@@ -77,5 +78,31 @@ assets:
   test('load() falls back to defaults when the file is missing', () {
     final config = ObfuscatorConfig.load('/nonexistent/obfuscator.yaml');
     expect(config.nameLooksLikeSecret('apiKey'), isTrue);
+  });
+
+  test('defaults() has tamper detection disabled', () {
+    final config = ObfuscatorConfig.defaults();
+    expect(config.tamperDetection.enabled, isFalse);
+    expect(config.tamperDetection.mode, TamperMode.block);
+  });
+
+  test('load() reads tamper_detection.enabled and mode', () {
+    final dir = Directory.systemTemp.createTempSync('obf_config_test_');
+    final file = File('${dir.path}/obfuscator.yaml');
+    file.writeAsStringSync('''
+tamper_detection:
+  enabled: true
+  mode: log
+''');
+
+    final config = ObfuscatorConfig.load(file.path);
+    expect(config.tamperDetection.enabled, isTrue);
+    expect(config.tamperDetection.mode, TamperMode.log);
+
+    dir.deleteSync(recursive: true);
+  });
+
+  test('TamperMode.parse rejects unknown values', () {
+    expect(() => TamperMode.parse('bogus'), throwsFormatException);
   });
 }

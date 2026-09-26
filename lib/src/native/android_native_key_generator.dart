@@ -82,6 +82,7 @@ class AndroidNativeKeyGenerator {
     buffer.writeln('import io.flutter.embedding.engine.plugins.FlutterPlugin');
     buffer.writeln('import io.flutter.plugin.common.MethodCall');
     buffer.writeln('import io.flutter.plugin.common.MethodChannel');
+    buffer.writeln('import java.io.File');
     buffer.writeln();
     buffer.writeln('private object ObfKeyMaterial {');
 
@@ -125,10 +126,23 @@ class ObfuscatorKeyPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     }
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
-        if (call.method == "getKey") {
-            result.success(ObfKeyMaterial.materialize())
-        } else {
-            result.notImplemented()
+        when (call.method) {
+            "getKey" -> result.success(ObfKeyMaterial.materialize())
+            "isTraced" -> result.success(isTraced())
+            else -> result.notImplemented()
+        }
+    }
+
+    // TracerPid is nonzero in /proc/self/status whenever a debugger or
+    // ptrace-based tool (gdb, Frida) is attached to this process — the
+    // same signal most Android anti-debug libraries check.
+    private fun isTraced(): Boolean {
+        return try {
+            File("/proc/self/status").readLines().any { line ->
+                line.startsWith("TracerPid:") && line.substringAfter(":").trim() != "0"
+            }
+        } catch (e: Exception) {
+            false
         }
     }
 }
