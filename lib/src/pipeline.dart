@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import 'assets/asset_call_rewriter.dart';
 import 'assets/asset_encryptor.dart';
 import 'assets/asset_vault_generator.dart';
+import 'assets/pubspec_asset_discovery.dart';
 import 'build/flutter_build_runner.dart';
 import 'config/obfuscator_config.dart';
 import 'crypto/key_material.dart';
@@ -60,11 +61,22 @@ class Pipeline {
     final scanner = SecretScanner(config, keyBytes, packageName);
     await scanner.scanDirectory(p.join(stagingRoot, 'lib'));
 
+    var assetIncludes = config.assetIncludes;
+    if (assetIncludes.isEmpty && config.assetAutoDetect) {
+      assetIncludes =
+          PubspecAssetDiscovery.discoverSensitiveAssets(stagingRoot);
+      if (assetIncludes.isNotEmpty) {
+        stdout.writeln('No assets.include configured — auto-detected '
+            '${assetIncludes.length} sensitive-looking asset(s) from '
+            'pubspec.yaml: ${assetIncludes.join(', ')}');
+      }
+    }
+
     stdout.writeln('Encrypting matched assets...');
     final assetEncryptor = AssetEncryptor(keyBytes);
     await assetEncryptor.encryptDirectory(
       projectRoot: stagingRoot,
-      includeGlobs: config.assetIncludes,
+      includeGlobs: assetIncludes,
       excludeGlobs: config.assetExcludes,
     );
 

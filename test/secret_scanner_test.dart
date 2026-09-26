@@ -72,6 +72,26 @@ const apiToken = 'zY8f2QpL9wR3kM7nT1vX5jH0cB6sD4gE', other = 'x';
     expect(scanner.skipped.single.variableName, 'apiToken');
   });
 
+  test(
+      'flags a value matching a known secret format even with an '
+      'innocuous variable name', () async {
+    final libDir = Directory(p.join(tempDir.path, 'lib'))
+      ..createSync(recursive: true);
+    final file = File(p.join(libDir.path, 'config.dart'));
+    // Built at runtime, not as a contiguous literal in this source file,
+    // so a secret scanner over the repo (GitHub push protection included)
+    // doesn't mistake this inert fixture value for a real Google API key.
+    const keyValue = 'AIza' 'SyD-9tSrke72PouQMnMX-a7eZSW0jkFMBWQ';
+    file.writeAsStringSync("const String mapsUrl = '$keyValue';\n");
+
+    final config = ObfuscatorConfig.defaults();
+    final scanner = SecretScanner(config, keyBytes, 'sample_app');
+    await scanner.scanDirectory(libDir.path);
+
+    expect(scanner.findings, hasLength(1));
+    expect(scanner.findings.single.variableName, 'mapsUrl');
+  });
+
   test('low-entropy value matching a name pattern is skipped', () async {
     final libDir = Directory(p.join(tempDir.path, 'lib'))
       ..createSync(recursive: true);

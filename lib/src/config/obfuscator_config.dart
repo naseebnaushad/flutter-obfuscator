@@ -13,8 +13,10 @@ class ObfuscatorConfig {
     required this.secretAnnotations,
     required this.minEntropy,
     required this.excludeFiles,
+    this.detectKnownSecretFormats = true,
     required this.assetIncludes,
     required this.assetExcludes,
+    this.assetAutoDetect = true,
     required this.keyStrategy,
     TamperConfig? tamperDetection,
     CertPinningConfig? certPinning,
@@ -25,8 +27,21 @@ class ObfuscatorConfig {
   final List<String> secretAnnotations;
   final double minEntropy;
   final List<String> excludeFiles;
+
+  /// v7, on by default: flags string literals matching a well-known
+  /// hardcoded-credential shape (AWS/Google/Stripe/GitHub/Slack keys, a
+  /// JWT, a PEM private key block) regardless of the variable's name or
+  /// the value's entropy. See [matchKnownSecretFormat].
+  final bool detectKnownSecretFormats;
+
   final List<String> assetIncludes;
   final List<String> assetExcludes;
+
+  /// v7, on by default: when [assetIncludes] isn't set in obfuscator.yaml,
+  /// auto-detect sensitive-looking assets (by extension) from the
+  /// project's own `pubspec.yaml` `flutter: assets:` list instead of
+  /// encrypting nothing. See `PubspecAssetDiscovery`.
+  final bool assetAutoDetect;
 
   /// Where the vault key lives at runtime. Defaults to [KeyStrategy.dartSplit]
   /// (v1, unchanged behavior); set `key_strategy: native_channel` in
@@ -60,8 +75,10 @@ class ObfuscatorConfig {
         secretAnnotations: const ['Secret'],
         minEntropy: 3.0,
         excludeFiles: const ['**/*.g.dart', '**/*.freezed.dart'],
+        detectKnownSecretFormats: true,
         assetIncludes: const [],
         assetExcludes: const [],
+        assetAutoDetect: true,
         keyStrategy: KeyStrategy.dartSplit,
       );
 
@@ -89,9 +106,12 @@ class ObfuscatorConfig {
     final minEntropy = (secrets['min_entropy'] as num?)?.toDouble() ?? 3.0;
     final excludeFiles = _stringList(secrets['exclude_files']) ??
         const ['**/*.g.dart', '**/*.freezed.dart'];
+    final detectKnownSecretFormats =
+        secrets['detect_known_formats'] as bool? ?? true;
 
     final assetIncludes = _stringList(assets['include']) ?? const [];
     final assetExcludes = _stringList(assets['exclude']) ?? const [];
+    final assetAutoDetect = assets['auto_detect'] as bool? ?? true;
     final keyStrategy = KeyStrategy.parse(map['key_strategy'] as String?);
 
     final tamperMap = map['tamper_detection'] is YamlMap
@@ -118,8 +138,10 @@ class ObfuscatorConfig {
       secretAnnotations: annotations,
       minEntropy: minEntropy,
       excludeFiles: excludeFiles,
+      detectKnownSecretFormats: detectKnownSecretFormats,
       assetIncludes: assetIncludes,
       assetExcludes: assetExcludes,
+      assetAutoDetect: assetAutoDetect,
       keyStrategy: keyStrategy,
       tamperDetection: tamperDetection,
       certPinning: certPinning,

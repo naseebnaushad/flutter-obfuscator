@@ -7,6 +7,7 @@ import 'package:glob/glob.dart';
 import '../config/obfuscator_config.dart';
 import '../crypto/vault_crypto.dart';
 import '../secrets/entropy.dart';
+import 'known_secret_patterns.dart';
 import 'secret_finding.dart';
 
 /// Scans a Flutter/Dart project for hardcoded secret-like string
@@ -115,7 +116,13 @@ class SecretScanner {
   }) async {
     if (list.variables.length != 1) {
       for (final v in list.variables) {
-        if (config.nameLooksLikeSecret(v.name.lexeme)) {
+        final vInitializer = v.initializer;
+        final vValue =
+            vInitializer is SimpleStringLiteral ? vInitializer.value : null;
+        final vKnownFormat = config.detectKnownSecretFormats && vValue != null
+            ? matchKnownSecretFormat(vValue)
+            : null;
+        if (config.nameLooksLikeSecret(v.name.lexeme) || vKnownFormat != null) {
           skipped.add(SkippedCandidate(
             filePath: filePath,
             variableName: v.name.lexeme,
@@ -137,8 +144,12 @@ class SecretScanner {
       (a) => config.secretAnnotations.contains(a.name.name),
     );
     final looksLikeSecret = config.nameLooksLikeSecret(name);
+    final knownFormat =
+        config.detectKnownSecretFormats ? matchKnownSecretFormat(value) : null;
 
-    if (!hasAnnotation && !looksLikeSecret) return null;
+    if (!hasAnnotation && !looksLikeSecret && knownFormat == null) {
+      return null;
+    }
 
     if (value.length < _minLiteralLength) {
       skipped.add(SkippedCandidate(
@@ -149,7 +160,13 @@ class SecretScanner {
       return null;
     }
 
-    if (!hasAnnotation && shannonEntropy(value) < config.minEntropy) {
+    // An annotation or a matched known-credential format (AWS/Google/
+    // Stripe/GitHub/Slack key, JWT, PEM block) is a strong enough signal
+    // on its own; only a bare name-pattern match needs the entropy check
+    // to rule out low-entropy strings like 'apiTokenPlaceholder'.
+    if (!hasAnnotation &&
+        knownFormat == null &&
+        shannonEntropy(value) < config.minEntropy) {
       skipped.add(SkippedCandidate(
         filePath: filePath,
         variableName: name,

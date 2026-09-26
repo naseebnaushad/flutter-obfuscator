@@ -17,12 +17,17 @@ verbatim into the app. This tool targets that gap.
    (`apiKey`, `authToken`, `clientSecret`, ...) or that carry a
    configured annotation, and whose value has enough entropy to plausibly
    be a real secret (filters out `"Loading..."`-style false positives).
+   It also flags a value against an innocuous-looking name (v7, on by
+   default) — see below.
 2. **Encryption** — encrypts each matched value with AES-256-GCM and
    rewrites the declaration to `SecretVault.get('<id>')`.
 3. **Asset encryption** — encrypts files matched by your `assets:` globs
    *in place* (same logical asset path, so `pubspec.yaml` never needs to
    change) and rewrites `rootBundle.load`/`loadString` call sites to go
-   through the generated `AssetVault`.
+   through the generated `AssetVault`. If you don't configure any
+   `assets.include` globs, it auto-detects sensitive-looking bundled
+   assets from `pubspec.yaml` instead of encrypting nothing (v7, on by
+   default) — see below.
 4. **Flutter's own obfuscation** — optionally runs
    `flutter build <target> --obfuscate --split-debug-info=...` for you on
    top of the above.
@@ -197,6 +202,39 @@ this app's HTTPS traffic — the standard MITM attack a VAPT engagement is
 supposed to flag. Pinning makes that interception fail even when the
 attacker's certificate is otherwise valid and system-trusted.
 
+## What it does (v7, on by default)
+
+v1's secret/asset detection only fires when you name things helpfully or
+list assets explicitly. v7 broadens both without any config needed:
+
+17. **Known-credential-format matching (secrets)** — every string literal
+    is also checked against a set of well-known hardcoded-credential
+    shapes (AWS access key IDs, Google API keys, Google OAuth client IDs,
+    Stripe live secret keys, GitHub tokens, Slack tokens, JWTs, PEM
+    private key blocks). A match is encrypted regardless of the variable's
+    name or the value's entropy — `final mapsUrl =
+    'https://.../AIzaSy...'` gets caught even though neither `mapsUrl` nor
+    a URL string trips the name-pattern/entropy check on their own. Turn
+    it off with `secrets.detect_known_formats: false`.
+18. **Pubspec-driven asset auto-detection** — when `assets.include` is
+    left empty, sensitive-looking files (`.json`, `.xml`, `.yaml`,
+    `.plist`, `.env`, `.cfg`/`.conf`, and certificate/key extensions like
+    `.pem`/`.key`/`.p12`/`.cer`/`.crt`/`.der`) declared under your own
+    `pubspec.yaml`'s `flutter: assets:` list are auto-included, instead of
+    nothing being encrypted until you hand-write globs. Image/font/audio/
+    video assets are excluded by default — they're rarely where a secret
+    lives and encrypting large binaries on every build has no security
+    payoff. Turn it off with `assets.auto_detect: false`, or set
+    `assets.include` yourself to bypass auto-detection entirely.
+
+Why this matters: v1's detection depends on the developer naming a
+variable in a way that signals "this is a secret," and on assets being
+explicitly listed for encryption. Real hardcoded credentials routinely
+don't announce themselves that way — a Google Maps key concatenated into
+a URL, a service-account JSON shipped as a bundled asset because "it's
+just config" — and previously those slipped through untouched. v7 doesn't
+change how anything is encrypted; it only widens what gets *found*.
+
 All of this runs against a **staged copy** of your project
 (`<project>/build/obfuscated` by default) so your working tree is never
 touched, unless you explicitly ask for `apply` (in-place).
@@ -244,12 +282,15 @@ secrets:
   exclude_files:
     - '**/*.g.dart'
     - '**/*.freezed.dart'
+  detect_known_formats: true # v7: flag AWS/Google/Stripe/GitHub/Slack keys,
+                              # JWTs, PEM blocks regardless of name/entropy
 
 assets:
-  include:
+  include:                  # leave empty to use v7 auto-detection instead
     - 'assets/config/**'
   exclude:
     - 'assets/config/public_readme.md'
+  auto_detect: true          # v7: only used when `include` above is empty
 
 key_strategy: dart_split # 'dart_split' (v1) | 'native_channel' (v2) | 'native_ndk' (v3 Android + v6 iOS)
 
@@ -338,6 +379,17 @@ certificate_pinning:      # v5, opt-in, default disabled
   `rootBundle.loadString('assets/x.json')`, not a call built from a
   variable or interpolation. Unmatched encrypted assets are listed in the
   run summary so you can fix those call sites by hand.
+- **v7's known-format matching is a fixed list, not a general secret
+  detector.** It catches specific, well-documented credential shapes
+  (AWS/Google/Stripe/GitHub/Slack, JWTs, PEM blocks) exactly, and nothing
+  outside that list unless it also matches a name pattern or trips the
+  entropy check — an internal service's own custom token format, for
+  example, still relies on v1's name/entropy detection or an explicit
+  `@Secret()` annotation. Likewise, v7's asset auto-detection only ever
+  looks at what `pubspec.yaml` itself declares as a Flutter asset and only
+  by file extension — an asset directory listed with a nested subfolder
+  Flutter doesn't recurse into, or a sensitive file with an unlisted
+  extension, still needs an explicit `assets.include` glob.
 - **v5 (`certificate_pinning`) doesn't wire itself into your HTTP calls.**
   `PinnedHttpClient` is generated, not adopted for you — any request made
   through a client you didn't swap in (a plugin's own internal `HttpClient`,
