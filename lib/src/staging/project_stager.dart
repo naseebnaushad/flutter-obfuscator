@@ -44,9 +44,26 @@ class ProjectStager {
   /// `cryptography`, which the generated SecretVault/AssetVault runtime
   /// needs. No-ops if it's already present (any version constraint).
   static void ensureRuntimeDependency(String projectRoot) {
+    _ensureDependency(projectRoot, 'cryptography', '^2.7.0');
+  }
+
+  /// Ensures the staged project's pubspec.yaml declares a dependency on
+  /// `crypto`, which the generated `PinnedHttpClient` (v5, certificate
+  /// pinning) needs for a synchronous SHA-256 (the `badCertificateCallback`
+  /// it hooks into is synchronous, ruling out `package:cryptography`'s
+  /// async API). No-ops if it's already present.
+  static void ensureCryptoDependency(String projectRoot) {
+    _ensureDependency(projectRoot, 'crypto', '^3.0.3');
+  }
+
+  static void _ensureDependency(
+    String projectRoot,
+    String packageName,
+    String versionConstraint,
+  ) {
     final pubspecFile = File(p.join(projectRoot, 'pubspec.yaml'));
     final source = pubspecFile.readAsStringSync();
-    if (RegExp(r'^\s*cryptography\s*:', multiLine: true).hasMatch(source)) {
+    if (RegExp('^\\s*$packageName\\s*:', multiLine: true).hasMatch(source)) {
       return;
     }
 
@@ -55,13 +72,13 @@ class ProjectStager {
     if (match == null) {
       throw StateError(
           'pubspec.yaml at $projectRoot has no top-level "dependencies:" '
-          'section to add the "cryptography" runtime dependency to.');
+          'section to add the "$packageName" runtime dependency to.');
     }
     final insertAt = match.end;
     final updated = source.replaceRange(
       insertAt,
       insertAt,
-      '\n  cryptography: ^2.7.0',
+      '\n  $packageName: $versionConstraint',
     );
     pubspecFile.writeAsStringSync(updated);
   }

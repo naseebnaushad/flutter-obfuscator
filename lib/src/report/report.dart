@@ -17,6 +17,9 @@ class Report {
     List<NativeInjectionResult> nativeKeyChannelResults = const [],
     bool tamperDetectionEnabled = false,
     TamperMode tamperDetectionMode = TamperMode.block,
+    bool certPinningEnabled = false,
+    int certPinningHostCount = 0,
+    NativeInjectionResult? androidNetworkSecurityConfigResult,
   }) {
     stdout.writeln('');
     stdout.writeln('flutter_obfuscator summary');
@@ -65,6 +68,20 @@ class Report {
             'README Known limitations.'
         : 'Tamper detection: disabled (set tamper_detection.enabled: true '
             'in obfuscator.yaml to turn it on)');
+    stdout.writeln(certPinningEnabled
+        ? 'Certificate pinning: enabled ($certPinningHostCount host(s) '
+            'pinned) — PinnedHttpClient generated at '
+            'lib/flutter_obfuscator/pinned_http_client.g.dart (swap it in '
+            'wherever you build your own HTTP client).'
+        : 'Certificate pinning: disabled (set certificate_pinning.enabled: '
+            'true in obfuscator.yaml to turn it on)');
+    if (androidNetworkSecurityConfigResult != null) {
+      final r = androidNetworkSecurityConfigResult;
+      stdout.writeln(r.applied
+          ? '  - android: network_security_config.xml wired into '
+              '${r.entryPointPath}'
+          : '  - android: NOT wired — ${r.reason}');
+    }
     stdout.writeln('');
   }
 

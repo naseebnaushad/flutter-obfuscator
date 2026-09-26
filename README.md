@@ -135,6 +135,53 @@ whether to trust the environment) and write a Frida script that stubs out
 key logic. Treat this as raising the cost of a casual/automated scan, not
 as a defense against a targeted attacker — see **Known limitations**.
 
+## What it does (v5, opt-in)
+
+Set `certificate_pinning.enabled: true` in `obfuscator.yaml` (with manually
+supplied pins — this tool never fetches a server's certificate for you) and
+two independent layers get generated:
+
+15. **`PinnedHttpClient` (Dart, cross-platform)** — a `dart:io` `HttpClient`
+    factory at `lib/flutter_obfuscator/pinned_http_client.g.dart` that
+    checks the connecting host's leaf certificate against configured
+    SHA-256 SPKI (`SubjectPublicKeyInfo`) pins before letting a connection
+    through. It isn't wired into your code automatically — swap
+    `PinnedHttpClient.create()` in wherever you build your own HTTP client
+    (`dart:io` directly, `IOClient(PinnedHttpClient.create())` for
+    `package:http`, an `IOHttpClientAdapter` for `package:dio`); Flutter
+    apps reach the network through too many shapes (`dart:io`,
+    `package:http`, `package:dio`, GraphQL, WebSockets, WebViews) for this
+    tool to reliably find and rewrite every call site the way it does for
+    encrypted assets.
+16. **`network_security_config.xml` (Android, declarative)** — a
+    `<pin-set>` per host generated at
+    `android/app/src/main/res/xml/network_security_config.xml`, wired into
+    `AndroidManifest.xml` via `android:networkSecurityConfig`. This one
+    needs no Dart code change: Android enforces it for
+    `HttpsURLConnection`, OkHttp, and `WebView` traffic alike, so it also
+    covers plugins and WebViews that never go through your own HTTP
+    client. Only one such config can be active per app, so a manifest that
+    already sets `android:networkSecurityConfig` is left alone and
+    reported as skipped, same pattern as v3's `externalNativeBuild` skip.
+    **There's no iOS equivalent** — App Transport Security has no
+    declarative SPKI pin-set without a third-party library (e.g.
+    TrustKit), so iOS relies on `PinnedHttpClient` alone.
+
+Both layers pin the same SHA-256 SPKI values, computed the same way as
+`openssl x509 -pubkey | openssl pkey -pubin -outform der | openssl dgst
+-sha256 -binary | base64` and what Android's `<pin-set>` expects natively.
+List a primary pin plus at least one backup per host — an SPKI pin survives
+a certificate renewal that reuses the same keypair, but a keypair change
+still needs a new pin, and locking every installed copy of the app out on a
+routine rotation is the classic pinning failure mode.
+
+Why this matters: without pinning, a device with any attacker-controlled or
+compromised trusted root installed (a malicious CA, a corporate MITM proxy,
+a device the user was tricked into trusting) can transparently intercept
+this app's HTTPS traffic — the standard MITM attack a VAPT engagement is
+supposed to flag. Pinning makes that interception fail even when the
+attacker's certificate is otherwise valid and system-trusted.
+
 All of this runs against a **staged copy** of your project
 (`<project>/build/obfuscated` by default) so your working tree is never
 touched, unless you explicitly ask for `apply` (in-place).
@@ -194,6 +241,15 @@ key_strategy: dart_split # 'dart_split' (v1) | 'native_channel' (v2) | 'native_n
 tamper_detection:         # v4, opt-in, default disabled
   enabled: false
   mode: block              # 'block' (default) | 'log'
+
+certificate_pinning:      # v5, opt-in, default disabled
+  enabled: false
+  unpinned_hosts: block    # 'block' (default) | 'allow' — see Known limitations
+  pins:
+    - host: api.example.com
+      spki_sha256:
+        - 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=' # primary
+        - 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=' # backup, for rotation
 ```
 
 ## Known limitations (read this before a VAPT sign-off)
@@ -202,10 +258,10 @@ tamper_detection:         # v4, opt-in, default disabled
   JADX-style extraction — the finding a VAPT report typically calls out.
   On their own they do **not** stop a motivated attacker with Frida or
   another dynamic instrumentation tool hooking `SecretVault.get`/
-  `AssetVault.load` at runtime, or hooking the AES-GCM call itself. v4
-  (below) is a first, limited step at addressing this; certificate
-  pinning and a real RASP/anti-tampering product are still separate
-  controls this tool does not provide.
+  `AssetVault.load` at runtime, or hooking the AES-GCM call itself. v4 and
+  v5 (below) are limited steps at addressing this; a real RASP/
+  anti-tampering product is still a separate control this tool does not
+  provide.
 - **v4 (`tamper_detection`) is a heuristic speed bump, not a wall.**
   Every check it runs (root/jailbreak file paths, the default frida-server
   port, `/proc/self/maps`, `TracerPid`/`P_TRACED`) is either public
@@ -258,6 +314,38 @@ tamper_detection:         # v4, opt-in, default disabled
   `rootBundle.loadString('assets/x.json')`, not a call built from a
   variable or interpolation. Unmatched encrypted assets are listed in the
   run summary so you can fix those call sites by hand.
+- **v5 (`certificate_pinning`) doesn't wire itself into your HTTP calls.**
+  `PinnedHttpClient` is generated, not adopted for you — any request made
+  through a client you didn't swap in (a plugin's own internal `HttpClient`,
+  a third-party SDK, a WebView not covered by the Android layer) still
+  goes through normal, unpinned validation. And a Frida script that hooks
+  `badCertificateCallback` directly, or Android's `NetworkSecurityConfig`/
+  OkHttp `CertificatePinner` at the class level, bypasses this outright —
+  this is, in fact, the single most common "SSL pinning bypass" script in
+  circulation, not a hypothetical. Pair it with v4 tamper detection for
+  some defense in depth; treat neither as sufficient alone against a
+  targeted attacker.
+- **`certificate_pinning.unpinned_hosts: allow` is not "normal HTTPS
+  validation."** Enforcing pinning from `dart:io` requires disabling the
+  platform's trusted-root store for `PinnedHttpClient` entirely (otherwise
+  a certificate that chains to any system-trusted root — including a
+  malicious or compromised CA — would pass silently, defeating the point
+  of pinning). One consequence: for a host with no configured pin, `allow`
+  can only mean "accept any certificate whose validity window covers
+  now" — there is no supported way to re-run real chain validation from
+  inside that callback once trusted roots are disabled. If a host needs
+  real validation, pin it, or route it through a separate, unpinned
+  `HttpClient`/`Dio()` instead.
+- **No iOS equivalent of the Android `network_security_config.xml`
+  layer.** iOS App Transport Security has no declarative SPKI pin-set
+  without pulling in a third-party library (e.g. TrustKit), which this
+  tool doesn't do. iOS gets pinning only where you've adopted
+  `PinnedHttpClient` yourself.
+- **Pin rotation and expiry are your responsibility.** This tool doesn't
+  fetch or refresh pins — you supply them in `obfuscator.yaml` and re-run
+  flutter_obfuscator before a pinned certificate expires or is rotated.
+  Listing a primary pin plus a backup for the next certificate avoids
+  locking out every installed copy of the app on a routine renewal.
 
 ## Development
 

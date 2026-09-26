@@ -13,8 +13,10 @@ import 'crypto/key_strategy.dart';
 import 'crypto/native_key_channel_generator.dart';
 import 'native/android_native_key_generator.dart';
 import 'native/android_ndk_key_generator.dart';
+import 'native/android_network_security_config_generator.dart';
 import 'native/ios_native_key_generator.dart';
 import 'native/native_injection_result.dart';
+import 'pinning/pinned_http_client_generator.dart';
 import 'report/report.dart';
 import 'secrets/secret_scanner.dart';
 import 'secrets/secret_vault_generator.dart';
@@ -120,6 +122,21 @@ class Pipeline {
 
     ProjectStager.ensureRuntimeDependency(stagingRoot);
 
+    NativeInjectionResult? androidNetworkSecurityResult;
+    if (config.certPinning.enabled) {
+      stdout.writeln('Wiring certificate pinning (PinnedHttpClient)...');
+      ProjectStager.ensureCryptoDependency(stagingRoot);
+      PinnedHttpClientGenerator.write(
+        projectRoot: stagingRoot,
+        config: config.certPinning,
+      );
+      androidNetworkSecurityResult =
+          AndroidNetworkSecurityConfigGenerator.generate(
+        projectRoot: stagingRoot,
+        config: config.certPinning,
+      );
+    }
+
     Report.printSummary(
       secrets: scanner.findings,
       skippedSecrets: scanner.skipped,
@@ -128,6 +145,9 @@ class Pipeline {
       nativeKeyChannelResults: nativeResults,
       tamperDetectionEnabled: config.tamperDetection.enabled,
       tamperDetectionMode: config.tamperDetection.mode,
+      certPinningEnabled: config.certPinning.enabled,
+      certPinningHostCount: config.certPinning.hosts.length,
+      androidNetworkSecurityConfigResult: androidNetworkSecurityResult,
     );
 
     var exitCode = 0;

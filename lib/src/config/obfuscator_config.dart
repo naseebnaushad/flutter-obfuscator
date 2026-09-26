@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:yaml/yaml.dart';
 
 import '../crypto/key_strategy.dart';
+import 'cert_pinning_config.dart';
 import 'tamper_config.dart';
 
 /// Parsed contents of `obfuscator.yaml`.
@@ -16,7 +17,9 @@ class ObfuscatorConfig {
     required this.assetExcludes,
     required this.keyStrategy,
     TamperConfig? tamperDetection,
-  }) : tamperDetection = tamperDetection ?? TamperConfig.disabled();
+    CertPinningConfig? certPinning,
+  })  : tamperDetection = tamperDetection ?? TamperConfig.disabled(),
+        certPinning = certPinning ?? CertPinningConfig.disabled();
 
   final List<RegExp> secretPatterns;
   final List<String> secretAnnotations;
@@ -33,6 +36,10 @@ class ObfuscatorConfig {
   /// v4, opt-in: root/jailbreak/Frida detection gating `SecretVault`/
   /// `AssetVault` decryption. Disabled by default.
   final TamperConfig tamperDetection;
+
+  /// v5, opt-in: certificate/SPKI pinning (`PinnedHttpClient` + Android
+  /// `network_security_config.xml`). Disabled by default.
+  final CertPinningConfig certPinning;
 
   static const List<String> _defaultPatternStrings = [
     r'api[_-]?key',
@@ -95,6 +102,16 @@ class ObfuscatorConfig {
       mode: TamperMode.parse(tamperMap['mode'] as String?),
     );
 
+    final pinningMap = map['certificate_pinning'] is YamlMap
+        ? Map<String, dynamic>.from(map['certificate_pinning'] as YamlMap)
+        : <String, dynamic>{};
+    final certPinning = CertPinningConfig(
+      enabled: pinningMap['enabled'] as bool? ?? false,
+      unpinnedHostPolicy:
+          UnpinnedHostPolicy.parse(pinningMap['unpinned_hosts'] as String?),
+      hosts: _parseHostPins(pinningMap['pins']),
+    );
+
     return ObfuscatorConfig(
       secretPatterns:
           patternStrings.map((p) => RegExp(p, caseSensitive: false)).toList(),
@@ -105,7 +122,27 @@ class ObfuscatorConfig {
       assetExcludes: assetExcludes,
       keyStrategy: keyStrategy,
       tamperDetection: tamperDetection,
+      certPinning: certPinning,
     );
+  }
+
+  static List<HostPins> _parseHostPins(dynamic value) {
+    if (value is! YamlList) return const [];
+    return value.map((entry) {
+      final map = Map<String, dynamic>.from(entry as YamlMap);
+      final host = map['host'] as String?;
+      if (host == null || host.isEmpty) {
+        throw const FormatException(
+            'certificate_pinning.pins entry is missing "host"');
+      }
+      final pins = _stringList(map['spki_sha256']) ?? const [];
+      if (pins.isEmpty) {
+        throw FormatException(
+            'certificate_pinning.pins entry for "$host" has no '
+            'spki_sha256 values');
+      }
+      return HostPins(host: host, spkiSha256: pins);
+    }).toList();
   }
 
   static List<String>? _stringList(dynamic value) {

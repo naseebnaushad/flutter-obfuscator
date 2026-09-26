@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter_obfuscator/src/config/cert_pinning_config.dart';
 import 'package:flutter_obfuscator/src/config/obfuscator_config.dart';
 import 'package:flutter_obfuscator/src/config/tamper_config.dart';
 import 'package:flutter_obfuscator/src/crypto/key_strategy.dart';
@@ -104,5 +105,74 @@ tamper_detection:
 
   test('TamperMode.parse rejects unknown values', () {
     expect(() => TamperMode.parse('bogus'), throwsFormatException);
+  });
+
+  test('defaults() has certificate pinning disabled', () {
+    final config = ObfuscatorConfig.defaults();
+    expect(config.certPinning.enabled, isFalse);
+    expect(config.certPinning.unpinnedHostPolicy, UnpinnedHostPolicy.block);
+    expect(config.certPinning.hosts, isEmpty);
+  });
+
+  test('load() reads certificate_pinning with multiple hosts/pins', () {
+    final dir = Directory.systemTemp.createTempSync('obf_config_test_');
+    final file = File('${dir.path}/obfuscator.yaml');
+    file.writeAsStringSync('''
+certificate_pinning:
+  enabled: true
+  unpinned_hosts: allow
+  pins:
+    - host: api.example.com
+      spki_sha256:
+        - "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+        - "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB="
+    - host: cdn.example.com
+      spki_sha256:
+        - "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC="
+''');
+
+    final config = ObfuscatorConfig.load(file.path);
+    expect(config.certPinning.enabled, isTrue);
+    expect(config.certPinning.unpinnedHostPolicy, UnpinnedHostPolicy.allow);
+    expect(config.certPinning.hosts, hasLength(2));
+    expect(config.certPinning.hosts[0].host, 'api.example.com');
+    expect(config.certPinning.hosts[0].spkiSha256, hasLength(2));
+    expect(config.certPinning.hosts[1].host, 'cdn.example.com');
+
+    dir.deleteSync(recursive: true);
+  });
+
+  test('UnpinnedHostPolicy.parse rejects unknown values', () {
+    expect(() => UnpinnedHostPolicy.parse('bogus'), throwsFormatException);
+  });
+
+  test('load() rejects a pin entry missing spki_sha256', () {
+    final dir = Directory.systemTemp.createTempSync('obf_config_test_');
+    final file = File('${dir.path}/obfuscator.yaml');
+    file.writeAsStringSync('''
+certificate_pinning:
+  enabled: true
+  pins:
+    - host: api.example.com
+''');
+
+    expect(() => ObfuscatorConfig.load(file.path), throwsFormatException);
+
+    dir.deleteSync(recursive: true);
+  });
+
+  test('load() rejects a pin entry missing host', () {
+    final dir = Directory.systemTemp.createTempSync('obf_config_test_');
+    final file = File('${dir.path}/obfuscator.yaml');
+    file.writeAsStringSync('''
+certificate_pinning:
+  enabled: true
+  pins:
+    - spki_sha256: ["AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="]
+''');
+
+    expect(() => ObfuscatorConfig.load(file.path), throwsFormatException);
+
+    dir.deleteSync(recursive: true);
   });
 }
