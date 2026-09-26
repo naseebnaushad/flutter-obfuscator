@@ -11,17 +11,29 @@ class ProjectStager {
 
   /// Copies [sourceRoot] into [stagingRoot] (which is wiped first if it
   /// already exists) and returns the pubspec-declared package name.
+  ///
+  /// If [sourceRoot] and [stagingRoot] are the same directory (the `apply`
+  /// command's in-place mode), the wipe-then-copy is skipped entirely:
+  /// wiping [stagingRoot] first would delete [sourceRoot] before there was
+  /// anything left to copy from it, destroying the project.
   static String stage({
     required String sourceRoot,
     required String stagingRoot,
   }) {
-    final stagingDir = Directory(stagingRoot);
-    if (stagingDir.existsSync()) {
-      stagingDir.deleteSync(recursive: true);
-    }
-    stagingDir.createSync(recursive: true);
+    final samePath = p.equals(
+      p.normalize(p.absolute(sourceRoot)),
+      p.normalize(p.absolute(stagingRoot)),
+    );
 
-    _copyDir(Directory(sourceRoot), stagingDir);
+    if (!samePath) {
+      final stagingDir = Directory(stagingRoot);
+      if (stagingDir.existsSync()) {
+        stagingDir.deleteSync(recursive: true);
+      }
+      stagingDir.createSync(recursive: true);
+
+      _copyDir(Directory(sourceRoot), stagingDir);
+    }
 
     return readPackageName(stagingRoot);
   }
