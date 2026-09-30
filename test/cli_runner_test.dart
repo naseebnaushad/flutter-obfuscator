@@ -40,7 +40,8 @@ void main() {
     return dir;
   }
 
-  test('build: stages a copy, encrypts the secret, and leaves the source untouched',
+  test(
+      'build: stages a copy, encrypts the secret, and leaves the source untouched',
       () async {
     final projectRoot = p.join(tempDir.path, 'project');
     createFixtureProject(projectRoot);
@@ -58,11 +59,13 @@ void main() {
 
     final stagedMain =
         File(p.join(outputRoot, 'lib', 'main.dart')).readAsStringSync();
-    expect(stagedMain, isNot(contains('sk_live_abcdef1234567890_totally_secret')));
+    expect(
+        stagedMain, isNot(contains('sk_live_abcdef1234567890_totally_secret')));
     expect(stagedMain, contains('SecretVault.get('));
 
     expect(
-      File(p.join(outputRoot, 'lib', 'flutter_obfuscator', 'secret_vault.g.dart'))
+      File(p.join(
+              outputRoot, 'lib', 'flutter_obfuscator', 'secret_vault.g.dart'))
           .existsSync(),
       isTrue,
     );
@@ -82,7 +85,8 @@ void main() {
     expect(exitCode, 0);
     final mainSource =
         File(p.join(projectRoot, 'lib', 'main.dart')).readAsStringSync();
-    expect(mainSource, isNot(contains('sk_live_abcdef1234567890_totally_secret')));
+    expect(
+        mainSource, isNot(contains('sk_live_abcdef1234567890_totally_secret')));
     expect(mainSource, contains('SecretVault.get('));
   });
 
@@ -131,13 +135,13 @@ void main() {
     final projectRoot = p.join(tempDir.path, 'project');
     createFixtureProject(projectRoot);
 
-    final exitCode =
-        await runCli(['bogus-command', '--project', projectRoot]);
+    final exitCode = await runCli(['bogus-command', '--project', projectRoot]);
 
     expect(exitCode, 64);
   });
 
-  test('--help prints usage and returns exit code 0 without touching the project',
+  test(
+      '--help prints usage and returns exit code 0 without touching the project',
       () async {
     final exitCode = await runCli(['--help']);
     expect(exitCode, 0);

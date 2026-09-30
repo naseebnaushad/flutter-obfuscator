@@ -29,9 +29,10 @@ explicitly a best-effort or heuristic layer with a documented gap, not a
 hard guarantee: **tamper detection** (v4, a heuristic speed bump a
 determined Frida script can patch around), **certificate pinning** (v5,
 doesn't wire itself into every HTTP call and has no iOS declarative
-layer), **identifier obfuscation** (v8, only renames within a single
-file, skips `part`/`part of`), and **string literal obfuscation** (v9,
-XOR-encoded not encrypted, skips interpolated/const strings). Turn these
+layer), **identifier obfuscation** (v8/v10, renames `part`/`part of`
+groups consistently but skips the whole group if any part is excluded
+or missing), and **string literal obfuscation** (v9, XOR-encoded not
+encrypted, skips interpolated/const strings). Turn these
 on deliberately, read their section under **Known limitations** first,
 and don't treat them as load-bearing for a security sign-off the way you
 would the core tier.
@@ -266,7 +267,7 @@ a URL, a service-account JSON shipped as a bundled asset because "it's
 just config" — and previously those slipped through untouched. v7 doesn't
 change how anything is encrypted; it only widens what gets *found*.
 
-## What it does (v8, opt-in)
+## What it does (v8, opt-in; part/part-of handling added in v10)
 
 19. **Private identifier obfuscation** — every `_`-prefixed declaration in
     your `lib/` (private classes, mixins, enums, extensions, top-level
@@ -278,14 +279,18 @@ change how anything is encrypted; it only widens what gets *found*.
     break your widget tree or a `flutter build` that relies on those
     names. Turn it on with `identifiers.enabled: true`.
 
-    Dart privacy is scoped to the *library* (in practice, one file), so
-    every occurrence of a given private name inside a file refers to the
-    same declaration and can be renamed as a single unit with no
-    whole-program analysis — this runs a per-file pass, not a
-    resolve-the-whole-package one. A file that uses `part`/`part of`
-    (privacy spanning multiple files) is left untouched rather than risk
-    renaming inconsistently across the group; the run summary lists any
-    file skipped this way.
+    Dart privacy is scoped to the *library*, which is normally one file —
+    but a `part`/`part of` group is a single library spread across
+    several files, and every occurrence of a given private name anywhere
+    in that group refers to the same declaration (v10). This resolves
+    those groups from each file's `part '...';` list and renames the
+    whole group as one unit with one shared rename map, so a private
+    class declared in the main file and used from a part file (or vice
+    versa) gets the same new name in both places. A head file whose parts
+    can't all be resolved within the files being obfuscated (one is
+    excluded, or missing) is left untouched along with the rest of its
+    group, rather than guess; the run summary lists anything skipped this
+    way.
 
     Why this matters: even with secrets and assets encrypted, a
     decompiled/deobfuscated APK or IPA still hands an attacker every
@@ -517,12 +522,15 @@ strings:                   # v9, opt-in, default disabled
   flutter_obfuscator before a pinned certificate expires or is rotated.
   Listing a primary pin plus a backup for the next certificate avoids
   locking out every installed copy of the app on a routine renewal.
-- **v8 (`identifiers.enabled`) only renames `_`-prefixed declarations, and
-  only within a single file.** A file using `part`/`part of` is skipped
-  entirely (privacy spans the whole part-file group, which this pass
-  doesn't analyze) rather than risk an inconsistent rename — check the run
-  summary's "Files left untouched" list. It also doesn't rename anything
-  reachable by name from a string: `dart:mirrors`-based reflection,
+- **v8/v10 (`identifiers.enabled`) only renames `_`-prefixed declarations.**
+  As of v10 it resolves `part`/`part of` groups and renames the whole
+  group consistently (the main file and its parts share one rename map),
+  but a head file whose parts aren't all present in the run (one is
+  excluded by `exclude_files`, or missing) is skipped entirely along with
+  the rest of its group rather than risk an inconsistent rename — check
+  the run summary's "Files left untouched" list. It also doesn't rename
+  anything reachable by name from a string: `dart:mirrors`-based
+  reflection,
   `noSuchMethod` dynamic dispatch, and manual `Map<String, dynamic>`
   parsing that matches keys against a private field's name (rather than
   using `json_serializable`/`freezed`, whose generated code is excluded

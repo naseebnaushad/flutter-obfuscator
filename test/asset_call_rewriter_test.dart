@@ -8,8 +8,7 @@ void main() {
   late Directory tempDir;
 
   setUp(() {
-    tempDir =
-        Directory.systemTemp.createTempSync('asset_call_rewriter_test_');
+    tempDir = Directory.systemTemp.createTempSync('asset_call_rewriter_test_');
   });
 
   tearDown(() {
@@ -23,7 +22,8 @@ void main() {
     return file;
   }
 
-  test('rewrites matching rootBundle.load/loadString call sites and adds the import',
+  test(
+      'rewrites matching rootBundle.load/loadString call sites and adds the import',
       () {
     final file = writeFile('lib/a.dart', '''
 import 'package:flutter/services.dart' show rootBundle;
@@ -45,8 +45,8 @@ Future<void> loadStuff() async {
 
     final rewritten = file.readAsStringSync();
     expect(rewritten, contains("AssetVault.load('assets/config/secret.json')"));
-    expect(
-        rewritten, contains("AssetVault.loadString('assets/config/other.txt')"));
+    expect(rewritten,
+        contains("AssetVault.loadString('assets/config/other.txt')"));
     expect(
         rewritten,
         contains(
@@ -54,7 +54,8 @@ Future<void> loadStuff() async {
     expect(unrewritten, isEmpty);
   });
 
-  test('leaves rootBundle calls untouched when their path is not encrypted', () {
+  test('leaves rootBundle calls untouched when their path is not encrypted',
+      () {
     final file = writeFile('lib/a.dart', '''
 Future<void> loadStuff() async {
   final bytes = await rootBundle.load('assets/public/logo.png');
@@ -67,10 +68,12 @@ Future<void> loadStuff() async {
       packageName: 'sample_app',
     );
 
-    expect(file.readAsStringSync(), contains("rootBundle.load('assets/public/logo.png')"));
+    expect(file.readAsStringSync(),
+        contains("rootBundle.load('assets/public/logo.png')"));
   });
 
-  test('reports encrypted assets with no matching call site as unrewritten', () {
+  test('reports encrypted assets with no matching call site as unrewritten',
+      () {
     writeFile('lib/a.dart', '''
 Future<void> loadStuff() async {
   final bytes = await rootBundle.load('assets/config/found.json');

@@ -121,15 +121,15 @@ class _Config {
     expect(rewritten, contains("m['_key']"));
   });
 
-  test('skips files using part/part-of directives', () {
-    writeFile('lib/main_part.dart', '''
+  test('renames a part/part-of group consistently across both files', () {
+    final head = writeFile('lib/main_part.dart', '''
 part 'other.dart';
 
 class _Shared {
   int _x = 1;
 }
 ''');
-    writeFile('lib/other.dart', '''
+    final part = writeFile('lib/other.dart', '''
 part of 'main_part.dart';
 
 void touch(_Shared s) => s._x;
@@ -141,11 +141,68 @@ void touch(_Shared s) => s._x;
       excludeGlobs: const [],
     );
 
+    expect(obfuscator.skippedFiles, isEmpty);
+    expect(obfuscator.renamedFiles, hasLength(2));
+
+    final headSource = head.readAsStringSync();
+    final partSource = part.readAsStringSync();
+    expect(headSource, isNot(contains('_Shared')));
+    expect(headSource, isNot(contains('_x')));
+    expect(partSource, isNot(contains('_Shared')));
+    expect(partSource, isNot(contains('_x')));
+
+    // The head's declaration and the part's usage must have picked up
+    // exactly the same new names — that's the whole point of resolving
+    // the group as one library instead of renaming each file alone.
+    final classMatch = RegExp(r'class (_o\d+) \{').firstMatch(headSource);
+    final fieldMatch = RegExp(r'int (_o\d+) = 1;').firstMatch(headSource);
+    expect(classMatch, isNotNull);
+    expect(fieldMatch, isNotNull);
+    expect(partSource, contains('void touch(${classMatch!.group(1)} s)'));
+    expect(partSource, contains('s.${fieldMatch!.group(1)};'));
+  });
+
+  test('skips a part-of file with no matching library head', () {
+    final orphan = writeFile('lib/orphan_part.dart', '''
+part of 'missing_head.dart';
+
+class _Orphan {}
+''');
+
+    final obfuscator = IdentifierObfuscator();
+    obfuscator.obfuscateDirectory(
+      p.join(tempDir.path, 'lib'),
+      excludeGlobs: const [],
+    );
+
     expect(obfuscator.renamedFiles, isEmpty);
-    expect(obfuscator.skippedFiles, hasLength(2));
-    final mainPart =
-        File(p.join(tempDir.path, 'lib', 'main_part.dart')).readAsStringSync();
-    expect(mainPart, contains('_Shared'));
+    expect(obfuscator.skippedFiles, hasLength(1));
+    expect(orphan.readAsStringSync(), contains('_Orphan'));
+  });
+
+  test('skips a head whose part is excluded, along with the head itself', () {
+    final head = writeFile('lib/head.dart', '''
+part 'generated.dart';
+
+class _Shared {
+  int _x = 1;
+}
+''');
+    writeFile('lib/generated.dart', '''
+part of 'head.dart';
+
+void touch(_Shared s) => s._x;
+''');
+
+    final obfuscator = IdentifierObfuscator();
+    obfuscator.obfuscateDirectory(
+      p.join(tempDir.path, 'lib'),
+      excludeGlobs: const ['**/generated.dart'],
+    );
+
+    expect(obfuscator.renamedFiles, isEmpty);
+    expect(obfuscator.skippedFiles, hasLength(1));
+    expect(head.readAsStringSync(), contains('_Shared'));
   });
 
   test('respects the exclude globs (e.g. generated .g.dart files)', () {

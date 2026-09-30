@@ -33,7 +33,8 @@ void main() {
   test('flags a secret whose plaintext value is still present in the artifact',
       () {
     final artifactPath = writeArtifact({
-      'classes.dex': 'this snapshot leaked sk_live_abcdef1234567890 by accident',
+      'classes.dex':
+          'this snapshot leaked sk_live_abcdef1234567890 by accident',
     });
 
     final results = PlaintextVerifier.verify(
