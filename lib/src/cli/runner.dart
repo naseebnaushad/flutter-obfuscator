@@ -101,6 +101,7 @@ ${parser.usage}
 
 Note: this defeats static analysis of secrets/assets. It does not defend
 against a dynamic attacker using Frida or similar runtime instrumentation.
-Native key storage (v2) is not yet implemented.
+See README.md for the full feature list and what each layer does and does
+not protect against.
 ''');
 }

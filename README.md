@@ -10,6 +10,37 @@ it does nothing about a `const apiKey = "..."` sitting in the compiled
 snapshot, or a `assets/config.json` full of internal endpoints bundled
 verbatim into the app. This tool targets that gap.
 
+## Stability
+
+Not every feature here carries the same bar of confidence. Two tiers:
+
+**Core — depend on these.** Rock-solid, well-tested, and on by default
+(or the obvious first thing you'd turn on): secret scanning + AES-256-GCM
+encryption (v1), asset encryption + call-site rewriting (v1), all three
+key strategies (`dart_split` v1, `native_channel` v2, `native_ndk` v3/v6),
+plaintext verification, and the staging/CLI orchestration (`build`/
+`apply`) that ties it all together. These have direct unit tests per
+module *and* end-to-end integration tests exercising the actual CLI
+commands, not just the pieces in isolation.
+
+**Experimental / nice-to-have — opt-in, use with eyes open.** Real,
+tested, and each does what its own doc comment says — but each is also
+explicitly a best-effort or heuristic layer with a documented gap, not a
+hard guarantee: **tamper detection** (v4, a heuristic speed bump a
+determined Frida script can patch around), **certificate pinning** (v5,
+doesn't wire itself into every HTTP call and has no iOS declarative
+layer), **identifier obfuscation** (v8, only renames within a single
+file, skips `part`/`part of`), and **string literal obfuscation** (v9,
+XOR-encoded not encrypted, skips interpolated/const strings). Turn these
+on deliberately, read their section under **Known limitations** first,
+and don't treat them as load-bearing for a security sign-off the way you
+would the core tier.
+
+New features land in the experimental tier first and only get promoted
+to core once they have the same integration-test coverage as the rest of
+that tier — see **Development** below for how the test suite is
+organized.
+
 ## What it does (v1)
 
 1. **Secret scanning** — walks `lib/**/*.dart`, finds `const`/`final`
@@ -519,6 +550,15 @@ dart pub get
 dart analyze
 dart test
 ```
+
+Each generator/scanner/config module has its own focused unit test file
+(`test/<module>_test.dart`). On top of that, `test/cli_runner_test.dart`
+exercises the CLI end to end — real `build`/`apply` invocations against a
+fixture project, asserting on the actual staged/rewritten output — since
+that orchestration layer (`cli/runner.dart` + `pipeline.dart`) is what
+ties every module together and a wiring bug there wouldn't be caught by
+any single module's unit tests. A feature graduating from experimental to
+core (see **Stability** above) should come with both.
 
 `example/sample_app` is a minimal (non-runnable, no real `flutter` SDK
 needed) fixture used to smoke-test the CLI end to end:
