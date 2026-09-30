@@ -5,6 +5,7 @@ import '../secrets/secret_finding.dart';
 import '../assets/asset_finding.dart';
 import '../native/native_injection_result.dart';
 import '../obfuscate/identifier_rename_result.dart';
+import '../obfuscate/string_obfuscation_result.dart';
 import '../verify/plaintext_verifier.dart';
 
 /// Prints a human-readable summary of what an obfuscation run did, so
@@ -24,6 +25,9 @@ class Report {
     bool identifierObfuscationEnabled = false,
     List<RenamedFileResult> renamedIdentifierFiles = const [],
     List<SkippedFileResult> skippedIdentifierFiles = const [],
+    bool stringObfuscationEnabled = false,
+    List<ObfuscatedStringFileResult> obfuscatedStringFiles = const [],
+    int distinctStringLiteralCount = 0,
   }) {
     stdout.writeln('');
     stdout.writeln('flutter_obfuscator summary');
@@ -101,6 +105,17 @@ class Report {
     } else {
       stdout.writeln('Identifier obfuscation: disabled (set '
           'identifiers.enabled: true in obfuscator.yaml to turn it on)');
+    }
+    if (stringObfuscationEnabled) {
+      final totalLiterals =
+          obfuscatedStringFiles.fold<int>(0, (sum, f) => sum + f.literalCount);
+      stdout.writeln('String obfuscation: enabled — $totalLiterals string '
+          'literal occurrence(s) ($distinctStringLiteralCount distinct '
+          'value(s)) rewritten across ${obfuscatedStringFiles.length} '
+          'file(s).');
+    } else {
+      stdout.writeln('String obfuscation: disabled (set strings.enabled: '
+          'true in obfuscator.yaml to turn it on)');
     }
     stdout.writeln('');
   }

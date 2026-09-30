@@ -19,6 +19,8 @@ import 'native/ios_native_key_generator.dart';
 import 'native/ios_ndk_key_generator.dart';
 import 'native/native_injection_result.dart';
 import 'obfuscate/identifier_obfuscator.dart';
+import 'obfuscate/string_literal_obfuscator.dart';
+import 'obfuscate/string_vault_generator.dart';
 import 'pinning/pinned_http_client_generator.dart';
 import 'report/report.dart';
 import 'secrets/secret_scanner.dart';
@@ -155,6 +157,24 @@ class Pipeline {
       );
     }
 
+    final stringObfuscator = StringLiteralObfuscator();
+    if (config.stringObfuscation.enabled) {
+      stdout.writeln('Obfuscating string literals...');
+      stringObfuscator.obfuscateDirectory(
+        p.join(stagingRoot, 'lib'),
+        excludeGlobs: config.excludeFiles,
+        minLength: config.stringObfuscation.minLength,
+        packageName: packageName,
+      );
+      if (stringObfuscator.literalValues.isNotEmpty) {
+        StringVaultGenerator.write(
+          projectRoot: stagingRoot,
+          literalValues: stringObfuscator.literalValues,
+          xorKey: generateKeyBytes(lengthBytes: 16),
+        );
+      }
+    }
+
     final identifierObfuscator = IdentifierObfuscator();
     if (config.identifierObfuscation.enabled) {
       stdout.writeln('Obfuscating private (_-prefixed) Dart identifiers...');
@@ -178,6 +198,9 @@ class Pipeline {
       identifierObfuscationEnabled: config.identifierObfuscation.enabled,
       renamedIdentifierFiles: identifierObfuscator.renamedFiles,
       skippedIdentifierFiles: identifierObfuscator.skippedFiles,
+      stringObfuscationEnabled: config.stringObfuscation.enabled,
+      obfuscatedStringFiles: stringObfuscator.obfuscatedFiles,
+      distinctStringLiteralCount: stringObfuscator.literalValues.length,
     );
 
     var exitCode = 0;

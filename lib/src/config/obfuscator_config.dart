@@ -5,6 +5,7 @@ import 'package:yaml/yaml.dart';
 import '../crypto/key_strategy.dart';
 import 'cert_pinning_config.dart';
 import 'identifier_obfuscation_config.dart';
+import 'string_obfuscation_config.dart';
 import 'tamper_config.dart';
 
 /// Parsed contents of `obfuscator.yaml`.
@@ -22,10 +23,13 @@ class ObfuscatorConfig {
     TamperConfig? tamperDetection,
     CertPinningConfig? certPinning,
     IdentifierObfuscationConfig? identifierObfuscation,
+    StringObfuscationConfig? stringObfuscation,
   })  : tamperDetection = tamperDetection ?? TamperConfig.disabled(),
         certPinning = certPinning ?? CertPinningConfig.disabled(),
         identifierObfuscation =
-            identifierObfuscation ?? IdentifierObfuscationConfig.disabled();
+            identifierObfuscation ?? IdentifierObfuscationConfig.disabled(),
+        stringObfuscation =
+            stringObfuscation ?? StringObfuscationConfig.disabled();
 
   final List<RegExp> secretPatterns;
   final List<String> secretAnnotations;
@@ -66,6 +70,12 @@ class ObfuscatorConfig {
   /// See `IdentifierObfuscator`.
   final IdentifierObfuscationConfig identifierObfuscation;
 
+  /// v9, opt-in: rewrites plain string literals in `lib/` into a
+  /// generated runtime table, so a `strings`/grep pass over a decompiled
+  /// build can't recover UI text, log messages, or URLs. Disabled by
+  /// default. See `StringLiteralObfuscator`.
+  final StringObfuscationConfig stringObfuscation;
+
   static const List<String> _defaultPatternStrings = [
     r'api[_-]?key',
     r'apikey',
@@ -91,6 +101,7 @@ class ObfuscatorConfig {
         assetAutoDetect: true,
         keyStrategy: KeyStrategy.dartSplit,
         identifierObfuscation: IdentifierObfuscationConfig.disabled(),
+        stringObfuscation: StringObfuscationConfig.disabled(),
       );
 
   /// Loads config from [path] if it exists, otherwise returns defaults.
@@ -150,6 +161,14 @@ class ObfuscatorConfig {
       enabled: identifiersMap['enabled'] as bool? ?? false,
     );
 
+    final stringsMap = map['strings'] is YamlMap
+        ? Map<String, dynamic>.from(map['strings'] as YamlMap)
+        : <String, dynamic>{};
+    final stringObfuscation = StringObfuscationConfig(
+      enabled: stringsMap['enabled'] as bool? ?? false,
+      minLength: (stringsMap['min_length'] as num?)?.toInt() ?? 4,
+    );
+
     return ObfuscatorConfig(
       secretPatterns:
           patternStrings.map((p) => RegExp(p, caseSensitive: false)).toList(),
@@ -164,6 +183,7 @@ class ObfuscatorConfig {
       tamperDetection: tamperDetection,
       certPinning: certPinning,
       identifierObfuscation: identifierObfuscation,
+      stringObfuscation: stringObfuscation,
     );
   }
 

@@ -180,6 +180,28 @@ identifiers:
     dir.deleteSync(recursive: true);
   });
 
+  test('defaults() has string obfuscation disabled', () {
+    final config = ObfuscatorConfig.defaults();
+    expect(config.stringObfuscation.enabled, isFalse);
+    expect(config.stringObfuscation.minLength, 4);
+  });
+
+  test('load() reads strings.enabled and min_length', () {
+    final dir = Directory.systemTemp.createTempSync('obf_config_test_');
+    final file = File('${dir.path}/obfuscator.yaml');
+    file.writeAsStringSync('''
+strings:
+  enabled: true
+  min_length: 8
+''');
+
+    final config = ObfuscatorConfig.load(file.path);
+    expect(config.stringObfuscation.enabled, isTrue);
+    expect(config.stringObfuscation.minLength, 8);
+
+    dir.deleteSync(recursive: true);
+  });
+
   test('load() rejects a pin entry missing host', () {
     final dir = Directory.systemTemp.createTempSync('obf_config_test_');
     final file = File('${dir.path}/obfuscator.yaml');

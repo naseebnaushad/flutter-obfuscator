@@ -264,6 +264,34 @@ change how anything is encrypted; it only widens what gets *found*.
     static analysis of the *structure* of your code, but it removes the
     free, readable labels that make that analysis fast.
 
+## What it does (v9, opt-in)
+
+20. **String literal obfuscation** — every plain string literal in your
+    `lib/` (UI text, log messages, URLs, map/JSON keys — anything not
+    already handled, with real encryption, by v1's secret scanner) is
+    rewritten into a lookup against a generated runtime table
+    (`lib/flutter_obfuscator/strings.g.dart`), so a `strings`/grep pass
+    over a decompiled build no longer recovers it verbatim. Turn it on
+    with `strings.enabled: true`; `strings.min_length` (default `4`)
+    skips literals too short to be worth the indirection.
+
+    This pass works syntactically, without full semantic resolution —
+    like v8, it only rewrites what it can prove is safe. It leaves
+    untouched: literals inside `import`/`export`/`part`/`library`
+    directives and annotations (rewriting those would break compilation);
+    literals in any provably `const` context (a `const` variable, a
+    `const` constructor call, a `const` list/map/set literal, a `const`
+    constructor's initializers, or a formal parameter's default value —
+    all of which must stay compile-time constants); switch-pattern
+    matching; adjacent-string concatenation; and interpolated strings
+    (`'hello $name'`) — only bare `SimpleStringLiteral`s are eligible.
+
+    The generated table uses XOR + base64, not AES — this isn't
+    protecting a secret (that's v1's job), it's defeating a casual static
+    scan of the built artifact's strings, so the lighter-weight encoding
+    is a deliberate choice, not a shortcut; see **Known limitations**
+    below for exactly what it does and does not defend against.
+
 All of this runs against a **staged copy** of your project
 (`<project>/build/obfuscated` by default) so your working tree is never
 touched, unless you explicitly ask for `apply` (in-place).
@@ -338,6 +366,10 @@ certificate_pinning:      # v5, opt-in, default disabled
 
 identifiers:              # v8, opt-in, default disabled
   enabled: false           # rename private (_-prefixed) declarations across lib/
+
+strings:                   # v9, opt-in, default disabled
+  enabled: false           # rewrite string literals in lib/ into a runtime table
+  min_length: 4             # skip literals shorter than this many characters
 ```
 
 ## Known limitations (read this before a VAPT sign-off)
@@ -467,6 +499,18 @@ identifiers:              # v8, opt-in, default disabled
   the original name, since string literal contents are never rewritten.
   It obfuscates **names**, not control flow or logic — decompiled code is
   still fully readable, just without meaningful labels.
+- **v9 (`strings.enabled`) encodes, it does not encrypt.** The generated
+  `strings.g.dart` ships its own XOR key right next to the encoded table —
+  by design, since these are ordinary UI/log strings, not secrets (use v1
+  for anything that actually needs confidentiality). This stops a plain
+  `strings`/grep/JADX-text-view pass; it does not stop anyone who
+  decompiles the app and runs (or reimplements) the two-line decode
+  themselves. It also only rewrites what it can prove is safe without
+  full semantic resolution — interpolated strings (`'hi $name'`),
+  anything in a provably `const` context, and directive/annotation
+  strings are left untouched (see "What it does (v9)" above for the
+  complete list) — so a `strings` dump of an obfuscated build will still
+  show some literal text, just far less of it.
 
 ## Development
 
