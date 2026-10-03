@@ -4,6 +4,7 @@ import 'package:yaml/yaml.dart';
 
 import '../crypto/key_strategy.dart';
 import 'cert_pinning_config.dart';
+import 'control_flow_config.dart';
 import 'identifier_obfuscation_config.dart';
 import 'string_obfuscation_config.dart';
 import 'tamper_config.dart';
@@ -24,12 +25,14 @@ class ObfuscatorConfig {
     CertPinningConfig? certPinning,
     IdentifierObfuscationConfig? identifierObfuscation,
     StringObfuscationConfig? stringObfuscation,
+    ControlFlowConfig? controlFlow,
   })  : tamperDetection = tamperDetection ?? TamperConfig.disabled(),
         certPinning = certPinning ?? CertPinningConfig.disabled(),
         identifierObfuscation =
             identifierObfuscation ?? IdentifierObfuscationConfig.disabled(),
         stringObfuscation =
-            stringObfuscation ?? StringObfuscationConfig.disabled();
+            stringObfuscation ?? StringObfuscationConfig.disabled(),
+        controlFlow = controlFlow ?? ControlFlowConfig.disabled();
 
   final List<RegExp> secretPatterns;
   final List<String> secretAnnotations;
@@ -76,6 +79,12 @@ class ObfuscatorConfig {
   /// default. See `StringLiteralObfuscator`.
   final StringObfuscationConfig stringObfuscation;
 
+  /// v11, opt-in: adds opaque-predicate noise to `if` conditions
+  /// (`cond` -> `(cond) || (<always-false expression>)`), so a decompiled
+  /// build's control flow can't be read at a glance. Disabled by default.
+  /// See `ControlFlowObfuscator`.
+  final ControlFlowConfig controlFlow;
+
   static const List<String> _defaultPatternStrings = [
     r'api[_-]?key',
     r'apikey',
@@ -102,6 +111,7 @@ class ObfuscatorConfig {
         keyStrategy: KeyStrategy.dartSplit,
         identifierObfuscation: IdentifierObfuscationConfig.disabled(),
         stringObfuscation: StringObfuscationConfig.disabled(),
+        controlFlow: ControlFlowConfig.disabled(),
       );
 
   /// Loads config from [path] if it exists, otherwise returns defaults.
@@ -169,6 +179,13 @@ class ObfuscatorConfig {
       minLength: (stringsMap['min_length'] as num?)?.toInt() ?? 4,
     );
 
+    final controlFlowMap = map['control_flow'] is YamlMap
+        ? Map<String, dynamic>.from(map['control_flow'] as YamlMap)
+        : <String, dynamic>{};
+    final controlFlow = ControlFlowConfig(
+      enabled: controlFlowMap['enabled'] as bool? ?? false,
+    );
+
     return ObfuscatorConfig(
       secretPatterns:
           patternStrings.map((p) => RegExp(p, caseSensitive: false)).toList(),
@@ -184,6 +201,7 @@ class ObfuscatorConfig {
       certPinning: certPinning,
       identifierObfuscation: identifierObfuscation,
       stringObfuscation: stringObfuscation,
+      controlFlow: controlFlow,
     );
   }
 

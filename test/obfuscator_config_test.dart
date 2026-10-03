@@ -202,6 +202,25 @@ strings:
     dir.deleteSync(recursive: true);
   });
 
+  test('defaults() has control flow obfuscation disabled', () {
+    final config = ObfuscatorConfig.defaults();
+    expect(config.controlFlow.enabled, isFalse);
+  });
+
+  test('load() reads control_flow.enabled', () {
+    final dir = Directory.systemTemp.createTempSync('obf_config_test_');
+    final file = File('${dir.path}/obfuscator.yaml');
+    file.writeAsStringSync('''
+control_flow:
+  enabled: true
+''');
+
+    final config = ObfuscatorConfig.load(file.path);
+    expect(config.controlFlow.enabled, isTrue);
+
+    dir.deleteSync(recursive: true);
+  });
+
   test('load() rejects a pin entry missing host', () {
     final dir = Directory.systemTemp.createTempSync('obf_config_test_');
     final file = File('${dir.path}/obfuscator.yaml');

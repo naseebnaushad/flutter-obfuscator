@@ -18,6 +18,7 @@ import 'native/android_network_security_config_generator.dart';
 import 'native/ios_native_key_generator.dart';
 import 'native/ios_ndk_key_generator.dart';
 import 'native/native_injection_result.dart';
+import 'obfuscate/control_flow_obfuscator.dart';
 import 'obfuscate/identifier_obfuscator.dart';
 import 'obfuscate/string_literal_obfuscator.dart';
 import 'obfuscate/string_vault_generator.dart';
@@ -184,6 +185,15 @@ class Pipeline {
       );
     }
 
+    final controlFlowObfuscator = ControlFlowObfuscator();
+    if (config.controlFlow.enabled) {
+      stdout.writeln('Adding opaque-predicate noise to if-conditions...');
+      controlFlowObfuscator.obfuscateDirectory(
+        p.join(stagingRoot, 'lib'),
+        excludeGlobs: config.excludeFiles,
+      );
+    }
+
     Report.printSummary(
       secrets: scanner.findings,
       skippedSecrets: scanner.skipped,
@@ -201,6 +211,8 @@ class Pipeline {
       stringObfuscationEnabled: config.stringObfuscation.enabled,
       obfuscatedStringFiles: stringObfuscator.obfuscatedFiles,
       distinctStringLiteralCount: stringObfuscator.literalValues.length,
+      controlFlowObfuscationEnabled: config.controlFlow.enabled,
+      obfuscatedControlFlowFiles: controlFlowObfuscator.obfuscatedFiles,
     );
 
     var exitCode = 0;

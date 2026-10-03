@@ -31,8 +31,10 @@ determined Frida script can patch around), **certificate pinning** (v5,
 doesn't wire itself into every HTTP call and has no iOS declarative
 layer), **identifier obfuscation** (v8/v10, renames `part`/`part of`
 groups consistently but skips the whole group if any part is excluded
-or missing), and **string literal obfuscation** (v9, XOR-encoded not
-encrypted, skips interpolated/const strings). Turn these
+or missing), **string literal obfuscation** (v9, XOR-encoded not
+encrypted, skips interpolated/const strings), and **control-flow
+obfuscation** (v11, adds opaque-predicate noise to `if` conditions; a
+constant-folding compiler could in principle strip it). Turn these
 on deliberately, read their section under **Known limitations** first,
 and don't treat them as load-bearing for a security sign-off the way you
 would the core tier.
@@ -328,6 +330,33 @@ change how anything is encrypted; it only widens what gets *found*.
     is a deliberate choice, not a shortcut; see **Known limitations**
     below for exactly what it does and does not defend against.
 
+## What it does (v11, opt-in)
+
+21. **Control-flow obfuscation** — every plain `if (cond) ...` in your
+    `lib/` is rewritten to `if ((cond) || (<opaque-false expression>)) ...`.
+    The appended disjunct is a small arithmetic fact that's always false by
+    construction (a literal compared against the parity it doesn't have,
+    freshly generated per site) and, thanks to `||` short-circuiting, is
+    only ever evaluated once `cond` is already known false — it has no
+    side effects and never changes which branch runs. Turn it on with
+    `control_flow.enabled: true`.
+
+    This targets a gap v8/v10 openly admit: identifier renaming makes
+    decompiled code unreadable by *name*, but the control flow itself is
+    still exactly as written, so a reverse engineer can still follow the
+    logic line for line. Opaque-predicate noise doesn't change what the
+    code does, but it does mean every `if` has to actually be evaluated
+    (rather than skimmed) to tell a real condition from a planted one.
+
+    Like v8/v9, this works syntactically on each `if`'s own condition and
+    doesn't attempt semantic resolution. It touches only `IfStatement`
+    conditions — not `while`/`do-while` loops, ternaries, or `if`-in-
+    collection-literal elements — and explicitly skips `if (x case
+    Pattern())` pattern matching, since there the condition is a pattern
+    test, not a plain boolean expression a disjunct can be appended to.
+    See **Known limitations** below for what this does and does not
+    defend against.
+
 All of this runs against a **staged copy** of your project
 (`<project>/build/obfuscated` by default) so your working tree is never
 touched, unless you explicitly ask for `apply` (in-place).
@@ -406,6 +435,9 @@ identifiers:              # v8, opt-in, default disabled
 strings:                   # v9, opt-in, default disabled
   enabled: false           # rewrite string literals in lib/ into a runtime table
   min_length: 4             # skip literals shorter than this many characters
+
+control_flow:              # v11, opt-in, default disabled
+  enabled: false           # add opaque-predicate noise to if-conditions in lib/
 ```
 
 ## Known limitations (read this before a VAPT sign-off)
@@ -550,6 +582,19 @@ strings:                   # v9, opt-in, default disabled
   strings are left untouched (see "What it does (v9)" above for the
   complete list) — so a `strings` dump of an obfuscated build will still
   show some literal text, just far less of it.
+- **v11 (`control_flow.enabled`) is noise, not a transformation.** The
+  injected disjunct is always false and never changes the compiled
+  behavior, which is also its ceiling: it doesn't flatten, merge, split, or
+  reorder any real control flow, so a reverse engineer who's willing to
+  actually trace each condition's truth table gets the same logic as
+  before, just with one extra (ignorable) clause per `if`. An AOT compiler
+  that constant-folds `<literal> % 2 == <n>` away would strip the noise
+  entirely — Dart's `dart compile` doesn't currently do this across such
+  varied literals, but nothing guarantees a future version, or another
+  compiler, won't. It also only touches `if` conditions: `while`/`do-while`
+  loops, ternaries, and switch statements are untouched, and `if (x case
+  Pattern())` pattern matching is deliberately skipped (see "What it does
+  (v11)" above).
 
 ## Development
 

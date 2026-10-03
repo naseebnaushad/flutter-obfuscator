@@ -4,6 +4,7 @@ import '../config/tamper_config.dart';
 import '../secrets/secret_finding.dart';
 import '../assets/asset_finding.dart';
 import '../native/native_injection_result.dart';
+import '../obfuscate/control_flow_result.dart';
 import '../obfuscate/identifier_rename_result.dart';
 import '../obfuscate/string_obfuscation_result.dart';
 import '../verify/plaintext_verifier.dart';
@@ -28,6 +29,8 @@ class Report {
     bool stringObfuscationEnabled = false,
     List<ObfuscatedStringFileResult> obfuscatedStringFiles = const [],
     int distinctStringLiteralCount = 0,
+    bool controlFlowObfuscationEnabled = false,
+    List<ObfuscatedControlFlowFileResult> obfuscatedControlFlowFiles = const [],
   }) {
     stdout.writeln('');
     stdout.writeln('flutter_obfuscator summary');
@@ -116,6 +119,16 @@ class Report {
     } else {
       stdout.writeln('String obfuscation: disabled (set strings.enabled: '
           'true in obfuscator.yaml to turn it on)');
+    }
+    if (controlFlowObfuscationEnabled) {
+      final totalInjected = obfuscatedControlFlowFiles.fold<int>(
+          0, (sum, f) => sum + f.injectedCount);
+      stdout.writeln('Control-flow obfuscation: enabled — $totalInjected '
+          'opaque predicate(s) injected across '
+          '${obfuscatedControlFlowFiles.length} file(s).');
+    } else {
+      stdout.writeln('Control-flow obfuscation: disabled (set '
+          'control_flow.enabled: true in obfuscator.yaml to turn it on)');
     }
     stdout.writeln('');
   }
