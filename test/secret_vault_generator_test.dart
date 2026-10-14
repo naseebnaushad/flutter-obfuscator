@@ -48,7 +48,7 @@ void main() {
     expect(source, contains('throw TamperDetectedException(tamperReport);'));
     // The throw must happen before the key is fetched.
     expect(source.indexOf('TamperDetectedException'),
-        lessThan(source.indexOf('_ObfKeyMaterial.materialize()')));
+        lessThan(source.indexOf('ObfKeyMaterial.materialize()')));
   });
 
   test('mode: log warns but still proceeds to decrypt', () {
@@ -63,5 +63,32 @@ void main() {
     final source = vaultSource();
     expect(source, isNot(contains('throw TamperDetectedException')));
     expect(source, contains('tamper signals detected'));
+  });
+
+  test(
+      'dartSplit: the key material class it imports is not private '
+      '(regression — a private class is invisible across a plain import, '
+      'which previously made every dartSplit-strategy project fail to '
+      'compile)', () {
+    final keyMaterial = VaultKeyMaterial.generate();
+    SecretVaultGenerator.write(
+      projectRoot: tempDir.path,
+      findings: const [],
+      keyStrategy: KeyStrategy.dartSplit,
+      keyMaterial: keyMaterial,
+    );
+
+    final classMatch =
+        RegExp(r'class (\w+) \{').firstMatch(keyMaterial.generatedSource);
+    expect(classMatch, isNotNull);
+    final className = classMatch!.group(1)!;
+    expect(className.startsWith('_'), isFalse,
+        reason: 'secret_vault.g.dart references this class from a '
+            "different file via a plain 'import' (not part/part-of), so "
+            'Dart privacy rules make a leading underscore here invisible '
+            'to its caller.');
+
+    final source = vaultSource();
+    expect(source, contains('$className.materialize()'));
   });
 }

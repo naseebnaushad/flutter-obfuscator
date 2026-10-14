@@ -332,30 +332,37 @@ change how anything is encrypted; it only widens what gets *found*.
 
 ## What it does (v11, opt-in)
 
-21. **Control-flow obfuscation** — every plain `if (cond) ...` in your
-    `lib/` is rewritten to `if ((cond) || (<opaque-false expression>)) ...`.
-    The appended disjunct is a small arithmetic fact that's always false by
-    construction (a literal compared against the parity it doesn't have,
-    freshly generated per site) and, thanks to `||` short-circuiting, is
-    only ever evaluated once `cond` is already known false — it has no
-    side effects and never changes which branch runs. Turn it on with
-    `control_flow.enabled: true`.
+21. **Control-flow obfuscation** — every `if` branch body in your `lib/`
+    is wrapped in a nested, always-true guard: `if (cond) body` becomes
+    `if (cond) { if (<opaque-true expression>) body }`, and the same
+    for an `else` branch. The nested condition is a small arithmetic fact
+    that's always true by construction (a literal compared against the
+    parity it actually has, freshly generated per site), so the branch
+    still runs under exactly the same circumstances as before. Turn it on
+    with `control_flow.enabled: true`.
 
     This targets a gap v8/v10 openly admit: identifier renaming makes
     decompiled code unreadable by *name*, but the control flow itself is
     still exactly as written, so a reverse engineer can still follow the
     logic line for line. Opaque-predicate noise doesn't change what the
-    code does, but it does mean every `if` has to actually be evaluated
-    (rather than skimmed) to tell a real condition from a planted one.
+    code does, but it does mean every branch has an extra, planted
+    conditional a reader has to actually evaluate (rather than skim past)
+    to confirm it's a no-op.
 
-    Like v8/v9, this works syntactically on each `if`'s own condition and
-    doesn't attempt semantic resolution. It touches only `IfStatement`
-    conditions — not `while`/`do-while` loops, ternaries, or `if`-in-
-    collection-literal elements — and explicitly skips `if (x case
-    Pattern())` pattern matching, since there the condition is a pattern
-    test, not a plain boolean expression a disjunct can be appended to.
-    See **Known limitations** below for what this does and does not
-    defend against.
+    This deliberately never touches the `if`'s own condition (or its
+    `case` clause, for pattern matching) — only the branch *bodies* are
+    wrapped. An earlier design instead appended an always-false disjunct
+    to the condition itself (`cond` -> `(cond) || (<always-false>)`),
+    which silently broke real code: Dart's flow analysis only promotes a
+    variable's type (`x != null` narrowing `x` from `T?` to `T` inside
+    the branch, a pattern match binding a variable, etc.) from the
+    condition's *exact* syntactic shape, and changing that shape at all
+    — even with a clause that's always false at runtime — loses the
+    promotion and fails to compile. Wrapping the body instead leaves the
+    original condition, and anything Dart's type system derives from it,
+    completely untouched; this was caught and fixed by actually compiling
+    a real cloned Flutter app with this feature on (see **Known
+    limitations** below), not just unit tests against synthetic snippets.
 
 All of this runs against a **staged copy** of your project
 (`<project>/build/obfuscated` by default) so your working tree is never
@@ -510,7 +517,11 @@ control_flow:              # v11, opt-in, default disabled
 - **Asset call-site rewriting only matches literal-argument calls** —
   `rootBundle.loadString('assets/x.json')`, not a call built from a
   variable or interpolation. Unmatched encrypted assets are listed in the
-  run summary so you can fix those call sites by hand.
+  run summary so you can fix those call sites by hand. It also doesn't
+  remove the original `import 'package:flutter/services.dart' show
+  rootBundle;` even once every call site in a file has been rewritten to
+  `AssetVault`, which can leave a harmless `unused_import` analyzer
+  warning behind — safe to ignore, or delete the import by hand.
 - **v7's known-format matching is a fixed list, not a general secret
   detector.** It catches specific, well-documented credential shapes
   (AWS/Google/Stripe/GitHub/Slack, JWTs, PEM blocks) exactly, and nothing
@@ -569,7 +580,12 @@ control_flow:              # v11, opt-in, default disabled
   from renaming by `exclude_files` anyway) can all still leak or break on
   the original name, since string literal contents are never rewritten.
   It obfuscates **names**, not control flow or logic — decompiled code is
-  still fully readable, just without meaningful labels.
+  still fully readable, just without meaningful labels. The generated
+  replacement names (`_o0`, `_o1`, ...) are also valid for every
+  declaration kind this renames (classes, methods, fields, variables)
+  rather than picking a casing per kind, so a renamed class trips the
+  analyzer's `camel_case_types` lint (`_o0` isn't UpperCamelCase) — an
+  `info`-level cosmetic finding, not a build error.
 - **v9 (`strings.enabled`) encodes, it does not encrypt.** The generated
   `strings.g.dart` ships its own XOR key right next to the encoded table —
   by design, since these are ordinary UI/log strings, not secrets (use v1
@@ -583,18 +599,21 @@ control_flow:              # v11, opt-in, default disabled
   complete list) — so a `strings` dump of an obfuscated build will still
   show some literal text, just far less of it.
 - **v11 (`control_flow.enabled`) is noise, not a transformation.** The
-  injected disjunct is always false and never changes the compiled
-  behavior, which is also its ceiling: it doesn't flatten, merge, split, or
-  reorder any real control flow, so a reverse engineer who's willing to
-  actually trace each condition's truth table gets the same logic as
-  before, just with one extra (ignorable) clause per `if`. An AOT compiler
-  that constant-folds `<literal> % 2 == <n>` away would strip the noise
+  injected guard is always true and never changes the compiled behavior,
+  which is also its ceiling: it doesn't flatten, merge, split, or reorder
+  any real control flow, so a reverse engineer who's willing to actually
+  trace each condition's truth table gets the same logic as before, just
+  with one extra (ignorable) nested `if` per branch. An AOT compiler that
+  constant-folds `<literal> % 2 == <n>` away would strip the noise
   entirely — Dart's `dart compile` doesn't currently do this across such
   varied literals, but nothing guarantees a future version, or another
-  compiler, won't. It also only touches `if` conditions: `while`/`do-while`
-  loops, ternaries, and switch statements are untouched, and `if (x case
-  Pattern())` pattern matching is deliberately skipped (see "What it does
-  (v11)" above).
+  compiler, won't. It also only touches `if` statements: `while`/
+  `do-while` loops, ternaries, switch statements, and `if`-in-collection-
+  literal elements are untouched (see "What it does (v11)" above).
+  Verified by actually compiling and running a real cloned Flutter app
+  (`flutter/samples`' `date_planner`) with every opt-in feature enabled
+  at once, not just unit tests against synthetic snippets — that run is
+  also what caught and fixed the type-promotion issue described above.
 
 ## Development
 

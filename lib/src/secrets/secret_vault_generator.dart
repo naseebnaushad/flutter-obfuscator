@@ -76,7 +76,7 @@ class SecretVaultGenerator {
         : "import '_obf_key_material.g.dart';";
     final keyFetch = isNative
         ? 'final keyBytes = await NativeKeyChannel.fetchKey();'
-        : 'final keyBytes = _ObfKeyMaterial.materialize();';
+        : 'final keyBytes = ObfKeyMaterial.materialize();';
     final tamperImport =
         tamperConfig.enabled ? "\nimport 'tamper_guard.g.dart';" : '';
     final tamperCheck = tamperConfig.enabled
